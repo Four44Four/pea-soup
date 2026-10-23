@@ -1,5 +1,4 @@
 # Sprint 1
- - Set up the rendering interface
  - Make a controllable character
  - Make procedural map generation/rendering
     - Ensure that the controllable character properly interacts with the map's generated walls
