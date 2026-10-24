@@ -94,14 +94,14 @@
   color-pair ;; can be `nil`
   (prev-map-x -1)
   (prev-map-y -1)
-  (prev-display-char-code (char-code #\Space))
-  (prev-display-attrib 0)
+  (prev-display-wall-p nil)
 )
 
 (defstruct game-state
+  map-data ;; 2d array of bits (1 -> wall, 0 -> no-wall)
   ;; these represent the top left corner of the map as the "camera"
-  cur-x
-  cur-y
+  (cur-x 0)
+  (cur-y 0)
   (moved-p nil)
   (redraw-p nil)
   (player-entity nil) ;; can be `nil`
@@ -130,22 +130,18 @@
                                          (charms:get-char main-window :ignore-error t)))
                      (last-frame-time (get-internal-real-time))
                      (map-pad (charms/ll:newpad +MAP_WIDTH+ +MAP_HEIGHT+))
-                     (game-state-instance (make-game-state :cur-x 0 :cur-y 0))
+                     (game-state-instance (make-game-state :map-data (generate-map-data +MAP_WIDTH+ +MAP_HEIGHT+)))
                      (first-frame-p t))
 
-                ;; populate the map with walls
+                ;; populate `map-pad` according to game state
                 (loop for x from 0 below +MAP_WIDTH+ do
                   (loop for y from 0 below +MAP_HEIGHT+ do
-                    (if (or (zerop x) (zerop y)
-                            (= x (1- +MAP_WIDTH+)) (= y (1- +MAP_HEIGHT+)))
-                      (charms/ll:mvwaddch map-pad y x
-                                          (char-code #\@))
-                      (if (zerop (random x))
-                        (progn
-                          (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
-                          (charms/ll:mvwaddch map-pad y x (char-code #\Space))
-                          (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+))
-                        (charms/ll:mvwaddch map-pad y x (char-code #\Space))))))
+                    (if (= 1 (sbit (game-state-map-data game-state-instance) y x))
+                      (progn
+                        (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
+                        (charms/ll:mvwaddch map-pad y x (char-code #\Space))
+                        (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+))
+                      (charms/ll:mvwaddch map-pad y x (char-code #\Space)))))
 
                 (sdl2:with-event-loop (:method :poll)
                   (:quit ()
@@ -292,8 +288,11 @@
 (defun move-entity (game-state-in map-pad-in ;map-data-in
                      entity-in
                     new-map-x new-map-y)
+  ;; TODO: also make it not be able to intersect with other entities
   (unless (or (< new-map-x 0) (>= new-map-x +MAP_WIDTH+)
-              (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+))
+              (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+)
+              (= 1 (sbit (game-state-map-data game-state-in)
+                         new-map-y new-map-x)))
     (setf (entity-prev-map-x entity-in) (entity-map-x entity-in)
           (entity-prev-map-y entity-in) (entity-map-y entity-in)
           (entity-map-x entity-in) new-map-x
@@ -311,9 +310,12 @@
         (prev-map-y (entity-prev-map-y entity-in)))
     (unless (or (< prev-map-x 0) (>= prev-map-x +MAP_WIDTH+)
                 (< prev-map-y 0) (>= prev-map-y +MAP_HEIGHT+))
-      (charms/ll:wattron map-pad-in (entity-prev-display-attrib entity-in))
-      (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (entity-prev-display-char-code entity-in))
-      (charms/ll:wattroff map-pad-in (entity-prev-display-attrib entity-in))
+      (if (entity-prev-display-wall-p entity-in)
+        (progn
+          (charms/ll:wattron map-pad-in +WALL_COLOR_PAIR+)
+          (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space))
+          (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+))
+        (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space)))
       (let ((dirty-screen-x (- prev-map-x (game-state-cur-x game-state-in)))
             (dirty-screen-y (- prev-map-y (game-state-cur-y game-state-in))))
         (charms/ll:pnoutrefresh map-pad-in
@@ -325,10 +327,10 @@
 
   (let ((cur-map-x (entity-map-x entity-in))
         (cur-map-y (entity-map-y entity-in)))
-      ;; update other previous display information for `entity-in`
-      (let ((prev-data (charms/ll:mvwinch map-pad-in cur-map-y cur-map-x)))
-        (setf (entity-prev-display-char-code entity-in) (logand prev-data #xff)
-              (entity-prev-display-attrib entity-in) (logand prev-data #xffffff00)))
+      ;; update other wall display information for `entity-in`
+      (setf (entity-prev-display-wall-p entity-in)
+            (= 1 (sbit (game-state-map-data game-state-in)
+                       cur-map-y cur-map-x)))
 
       ;; draw `entity-in` at new char cell
       (let ((cur-entity-color-pair (entity-color-pair entity-in))
@@ -346,6 +348,19 @@
                                   dirty-screen-y dirty-screen-x))
         (setf (game-state-redraw-p game-state-in)
             t)));)
+)
+
+;; returns a 2d bit array
+(defun generate-map-data (width-in height-in)
+  (let ((ret-arr (make-array (list height-in width-in)
+                             :element-type 'bit
+                             :initial-element 0)))
+    (loop for x from 0 below width-in do
+      (loop for y from 0 below height-in do
+        (when (zerop (random (1+ x)))
+          (setf (sbit ret-arr y x)
+                1))))
+    ret-arr)
 )
 
 ;; `name` is the unique identifying name this timer task is assigned
