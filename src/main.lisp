@@ -51,7 +51,7 @@
   (charms/ll:use-default-colors)
 
   (charms/ll:init-color +BROWN1_ID+ 647 165 165)
-  (charms/ll:init-pair +WALL_COLOR_PAIR_ID+ +BROWN1_ID+ charms/ll:COLOR_BLACK)
+  (charms/ll:init-pair +WALL_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +BROWN1_ID+)
   (setq +WALL_COLOR_PAIR+ (charms/ll:color-pair +WALL_COLOR_PAIR_ID+))
 
   (charms/ll:init-color +GREEN1_ID+ 500 1000 250)
@@ -86,9 +86,28 @@
 (defparameter +MAP_WIDTH+ 400)
 (defparameter +MAP_HEIGHT+ 400)
 
+(defstruct entity
+  id
+  map-x
+  map-y
+  display-char-code
+  color-pair ;; can be `nil`
+  (prev-map-x -1)
+  (prev-map-y -1)
+  (prev-display-char-code (char-code #\Space))
+  (prev-display-attrib 0)
+)
+
 (defstruct game-state
+  ;; these represent the top left corner of the map as the "camera"
   cur-x
-  cur-y)
+  cur-y
+  (moved-p nil)
+  (redraw-p nil)
+  (player-entity nil) ;; can be `nil`
+  (entities (make-hash-table :test #'eql))
+  (cur-entity-id 0)
+)
 
 (defun main ()
   (sdl2:make-this-thread-main
@@ -106,16 +125,13 @@
 
             (handler-case
               (let* ((main-window charms:*standard-window*)
+                     ;; (main-window-ptr (charms::window-pointer main-window))
                      (get-next-char-fn #'(lambda ()
                                          (charms:get-char main-window :ignore-error t)))
                      (last-frame-time (get-internal-real-time))
                      (map-pad (charms/ll:newpad +MAP_WIDTH+ +MAP_HEIGHT+))
                      (game-state-instance (make-game-state :cur-x 0 :cur-y 0))
-                     (moved-p-ref (make-array 1 :element-type 'bit :initial-element 0))
                      (first-frame-p t))
-                ;; `moved-p-ref` on stack
-                (declare (type (simple-array bit (1)) moved-p-ref)
-                         (dynamic-extent moved-p-ref))
 
                 ;; populate the map with walls
                 (loop for x from 0 below +MAP_WIDTH+ do
@@ -125,9 +141,11 @@
                       (charms/ll:mvwaddch map-pad y x
                                           (char-code #\@))
                       (if (zerop (random x))
-                        (charms/ll:mvwaddstr map-pad y x "█")
-                        (charms/ll:mvwaddch map-pad y x
-                                            (char-code #\Space))))))
+                        (progn
+                          (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
+                          (charms/ll:mvwaddch map-pad y x (char-code #\Space))
+                          (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+))
+                        (charms/ll:mvwaddch map-pad y x (char-code #\Space))))))
 
                 (sdl2:with-event-loop (:method :poll)
                   (:quit ()
@@ -143,35 +161,53 @@
                             (charms:window-dimensions main-window)
                           (let ((viewport-width (1- cur-win-width))
                                 (viewport-height (1- cur-win-height)))
-                            ;; reset `moved-p-ref`
-                            (setf (aref moved-p-ref 0)
-                                  0)
+                            ;; reset `moved-p` + `redraw-p`
+                            (setf (game-state-moved-p game-state-instance) nil
+                                  (game-state-redraw-p game-state-instance) nil)
+                            ;; drain queued input
                             (loop for cur-char = (funcall get-next-char-fn)
                                   while cur-char do
                                     (handle-input-chars cur-char get-next-char-fn game-state-instance
                                                         (1- (- +MAP_WIDTH+ viewport-width))
                                                         (1- (- +MAP_HEIGHT+ viewport-height))
-                                                        moved-p-ref))
-                            (when (or first-frame-p (= 1 (aref moved-p-ref 0)))
-                              (setf first-frame-p nil)
-                              (charms/ll:pnoutrefresh map-pad
-                                                      (game-state-cur-y game-state-instance)
-                                                      (game-state-cur-x game-state-instance)
-                                                      0 0
-                                                      viewport-height viewport-width)
-                              (charms/ll:doupdate))
-                            ;; (charms:refresh-window main-window)
-                            )))
+                                                        map-pad))
+                            ;; do main rendering
+                            (let ((cam-map-x (game-state-cur-x game-state-instance))
+                                  (cam-map-y (game-state-cur-y game-state-instance)))
+                              (when (or first-frame-p (game-state-moved-p game-state-instance))
+                                (when first-frame-p
+                                  (setf first-frame-p nil)
+                                  (on-first-frame map-pad game-state-instance viewport-width viewport-height))
+                                ;; redraw entire pad
+                                (charms/ll:pnoutrefresh map-pad
+                                                        cam-map-y cam-map-x
+                                                        0 0
+                                                        viewport-height viewport-width)
+                                (setf (game-state-redraw-p game-state-instance)
+                                      t))
+                              (when (game-state-redraw-p game-state-instance)
+                                (charms/ll:doupdate))))))
                       (sdl2:delay 1)))))
               (error (error-in)
                 (print-to-log-file "~%~A~%" error-in))))))))
 )
 
+(defun on-first-frame (map-pad-in game-state-in
+                       viewport-width-in viewport-height-in)
+  (setf (game-state-player-entity game-state-in)
+        (spawn-entity map-pad-in
+                      game-state-in
+
+                      (+ (game-state-cur-x game-state-in) (ash viewport-width-in -1))
+                      (+ (game-state-cur-y game-state-in) (ash viewport-height-in -1))
+                      (char-code #\Space)
+                      +PLAYER_COLOR_PAIR+))
+)
+
 ;; `get-next-char-fn` is a zero arg function that returns the next character in the input stream or `nil` if it has ended
 (defun handle-input-chars (first-input-char-in get-next-char-fn game-state-in
-                           max-pos-x max-pos-y
-                           moved-p-ref)
-  (declare (type (simple-array bit (1)) moved-p-ref))
+                           max-cam-map-x max-cam-map-y
+                           map-pad-in)
   (case first-input-char-in
     ;; exit if `ESC` key is pressed
     (#\Esc
@@ -182,34 +218,134 @@
     (#\Space
       (sdl2-mixer:play-channel -1 +BOING_MP3+ +NO_LOOP_AUDIO+))
     (#\w
-      (setf (aref moved-p-ref 0)
-            1)
+      (setf (game-state-moved-p game-state-in)
+            t)
       (setf (game-state-cur-y game-state-in)
             (clamp (1- (game-state-cur-y game-state-in))
                    0
-                   max-pos-y)))
+                   max-cam-map-y)))
     (#\a
-      (setf (aref moved-p-ref 0)
-            1)
+      (setf (game-state-moved-p game-state-in)
+            t)
       (setf (game-state-cur-x game-state-in)
             (clamp (1- (game-state-cur-x game-state-in))
                    0
-                   max-pos-x)))
+                   max-cam-map-x)))
     (#\s
-      (setf (aref moved-p-ref 0)
-            1)
+      (setf (game-state-moved-p game-state-in)
+            t)
       (setf (game-state-cur-y game-state-in)
             (clamp (1+ (game-state-cur-y game-state-in))
                    0
-                   max-pos-y)))
+                   max-cam-map-y)))
     (#\d
-      (setf (aref moved-p-ref 0)
-            1)
+      (setf (game-state-moved-p game-state-in)
+            t)
       (setf (game-state-cur-x game-state-in)
             (clamp (1+ (game-state-cur-x game-state-in))
                    0
-                   max-pos-x)))
+                   max-cam-map-x)))
+    (#\i
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (move-entity game-state-in map-pad-in player-entity
+                       (entity-map-x player-entity) (1- (entity-map-y player-entity))))))
+    (#\j
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (move-entity game-state-in map-pad-in player-entity
+                       (1- (entity-map-x player-entity))  (entity-map-y player-entity)))))
+    (#\k
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (move-entity game-state-in map-pad-in player-entity
+                       (entity-map-x player-entity) (1+ (entity-map-y player-entity))))))
+    (#\l
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (move-entity game-state-in map-pad-in player-entity
+                       (1+ (entity-map-x player-entity)) (entity-map-y player-entity)))))
     (t nil))
+)
+
+;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `display-char-code-in` `color-pair-in`
+;; returns the created entity instance
+;;   modifies `game-state-in` as a side effect
+(defun spawn-entity (map-pad-in game-state-in
+                     map-x-in map-y-in display-char-code-in color-pair-in)
+  (incf (game-state-cur-entity-id game-state-in))
+  (let* ((cur-entity-id (game-state-cur-entity-id game-state-in))
+         (ret-entity (make-entity :id cur-entity-id
+                                  :map-x map-x-in :map-y map-y-in
+                                  :display-char-code display-char-code-in :color-pair color-pair-in)))
+    (setf (gethash cur-entity-id
+                   (game-state-entities game-state-in))
+          ret-entity)
+    (visual-move-entity game-state-in map-pad-in ret-entity)
+    ret-entity)
+)
+
+;; attempts to move `entity-in` to `new-map-x` `new-map-y`
+;; returns non-`nil` if successfully moved `entity-in`
+;;         or `nil` if `entity-in` remains at the same place due to cancelled movement
+;; `new-map-x` and `new-map-y` are `map-data-in` relative
+(defun move-entity (game-state-in map-pad-in ;map-data-in
+                     entity-in
+                    new-map-x new-map-y)
+  (unless (or (< new-map-x 0) (>= new-map-x +MAP_WIDTH+)
+              (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+))
+    (setf (entity-prev-map-x entity-in) (entity-map-x entity-in)
+          (entity-prev-map-y entity-in) (entity-map-y entity-in)
+          (entity-map-x entity-in) new-map-x
+          (entity-map-y entity-in) new-map-y)
+
+    (visual-move-entity game-state-in map-pad-in entity-in)
+
+    t)
+)
+
+;; should be called whenever `entity-in` moves on `map-pad-in`
+(defun visual-move-entity (game-state-in map-pad-in entity-in)
+  ;; erase `entity-in` at prev map cells
+  (let ((prev-map-x (entity-prev-map-x entity-in))
+        (prev-map-y (entity-prev-map-y entity-in)))
+    (unless (or (< prev-map-x 0) (>= prev-map-x +MAP_WIDTH+)
+                (< prev-map-y 0) (>= prev-map-y +MAP_HEIGHT+))
+      (charms/ll:wattron map-pad-in (entity-prev-display-attrib entity-in))
+      (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (entity-prev-display-char-code entity-in))
+      (charms/ll:wattroff map-pad-in (entity-prev-display-attrib entity-in))
+      (let ((dirty-screen-x (- prev-map-x (game-state-cur-x game-state-in)))
+            (dirty-screen-y (- prev-map-y (game-state-cur-y game-state-in))))
+        (charms/ll:pnoutrefresh map-pad-in
+                                prev-map-y prev-map-x
+                                dirty-screen-y dirty-screen-x
+                                dirty-screen-y dirty-screen-x))
+      (setf (game-state-redraw-p game-state-in)
+            t)))
+
+  (let ((cur-map-x (entity-map-x entity-in))
+        (cur-map-y (entity-map-y entity-in)))
+      ;; update other previous display information for `entity-in`
+      (let ((prev-data (charms/ll:mvwinch map-pad-in cur-map-y cur-map-x)))
+        (setf (entity-prev-display-char-code entity-in) (logand prev-data #xff)
+              (entity-prev-display-attrib entity-in) (logand prev-data #xffffff00)))
+
+      ;; draw `entity-in` at new char cell
+      (let ((cur-entity-color-pair (entity-color-pair entity-in))
+            (cur-entity-display-char-code (entity-display-char-code entity-in)))
+        (when cur-entity-color-pair
+          (charms/ll:wattron map-pad-in cur-entity-color-pair))
+        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x cur-entity-display-char-code)
+        (when cur-entity-color-pair
+          (charms/ll:wattroff map-pad-in cur-entity-color-pair))
+        (let ((dirty-screen-x (- cur-map-x (game-state-cur-x game-state-in)))
+              (dirty-screen-y (- cur-map-y (game-state-cur-y game-state-in))))
+          (charms/ll:pnoutrefresh map-pad-in
+                                  cur-map-y cur-map-x
+                                  dirty-screen-y dirty-screen-x
+                                  dirty-screen-y dirty-screen-x))
+        (setf (game-state-redraw-p game-state-in)
+            t)));)
 )
 
 ;; `name` is the unique identifying name this timer task is assigned
