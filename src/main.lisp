@@ -46,6 +46,10 @@
 (defconstant +PLAYER_COLOR_PAIR_ID+ 2)
 (defparameter +PLAYER_COLOR_PAIR+ nil)
 
+(defconstant +GREEN_DARK1_ID+ 12)
+(defconstant +OTHERS_COLOR_PAIR_ID+ 3)
+(defparameter +OTHERS_COLOR_PAIR+ nil)
+
 (defun init-all-colors ()
   (charms/ll:start-color)
   (charms/ll:use-default-colors)
@@ -57,6 +61,10 @@
   (charms/ll:init-color +GREEN1_ID+ 500 1000 250)
   (charms/ll:init-pair +PLAYER_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_ID+)
   (setq +PLAYER_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_COLOR_PAIR_ID+))
+
+  (charms/ll:init-color +GREEN_DARK1_ID+ 500 800 500)
+  (charms/ll:init-pair +OTHERS_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_ID+)
+  (setq +OTHERS_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_COLOR_PAIR_ID+))
 )
 
 ;; ---------------------------------------------------------------------------------------------------------
@@ -85,6 +93,7 @@
 
 (defparameter +MAP_WIDTH+ 400)
 (defparameter +MAP_HEIGHT+ 400)
+(defparameter +MAP_SPAWN_RADIUS+ 10)
 
 (defstruct entity
   id
@@ -136,12 +145,12 @@
                 ;; populate `map-pad` according to game state
                 (loop for x from 0 below +MAP_WIDTH+ do
                   (loop for y from 0 below +MAP_HEIGHT+ do
-                    (if (= 1 (sbit (game-state-map-data game-state-instance) y x))
+                    (if (zerop (sbit (game-state-map-data game-state-instance) y x))
+                      (charms/ll:mvwaddch map-pad y x (char-code #\Space))
                       (progn
                         (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
                         (charms/ll:mvwaddch map-pad y x (char-code #\Space))
-                        (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+))
-                      (charms/ll:mvwaddch map-pad y x (char-code #\Space)))))
+                        (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+)))))
 
                 (sdl2:with-event-loop (:method :poll)
                   (:quit ()
@@ -190,14 +199,16 @@
 
 (defun on-first-frame (map-pad-in game-state-in
                        viewport-width-in viewport-height-in)
-  (setf (game-state-player-entity game-state-in)
-        (spawn-entity map-pad-in
-                      game-state-in
+  (let ((spawn-map-x (+ (game-state-cur-x game-state-in) (ash viewport-width-in -1)))
+        (spawn-map-y (+ (game-state-cur-y game-state-in) (ash viewport-height-in -1))))
 
-                      (+ (game-state-cur-x game-state-in) (ash viewport-width-in -1))
-                      (+ (game-state-cur-y game-state-in) (ash viewport-height-in -1))
-                      (char-code #\Space)
-                      +PLAYER_COLOR_PAIR+))
+    (clear-spawn-area map-pad-in game-state-in spawn-map-x spawn-map-y)
+
+    (spawn-player map-pad-in game-state-in spawn-map-x spawn-map-y)
+
+    ;; spawn NPCs
+    (dotimes (i 10)
+      ))
 )
 
 ;; `get-next-char-fn` is a zero arg function that returns the next character in the input stream or `nil` if it has ended
@@ -264,6 +275,23 @@
     (t nil))
 )
 
+;; updates `map-pad-in` and `game-state-in`
+(defun set-map-cell (map-pad-in game-state-in
+                     map-x map-y wall-p-bit)
+  (setf (sbit (game-state-map-data game-state-in)
+              map-y map-x)
+        wall-p-bit)
+
+  (if (zerop wall-p-bit)
+    (charms/ll:mvwaddch map-pad-in map-y map-x (char-code #\Space))
+    (progn
+      (charms/ll:wattron map-pad-in +WALL_COLOR_PAIR+)
+      (charms/ll:mvwaddch map-pad-in map-y map-x (char-code #\Space))
+      (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)))
+
+  (mark-pad-dirty game-state-in map-pad-in map-x map-y)
+)
+
 ;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `display-char-code-in` `color-pair-in`
 ;; returns the created entity instance
 ;;   modifies `game-state-in` as a side effect
@@ -316,14 +344,7 @@
           (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space))
           (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+))
         (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space)))
-      (let ((dirty-screen-x (- prev-map-x (game-state-cur-x game-state-in)))
-            (dirty-screen-y (- prev-map-y (game-state-cur-y game-state-in))))
-        (charms/ll:pnoutrefresh map-pad-in
-                                prev-map-y prev-map-x
-                                dirty-screen-y dirty-screen-x
-                                dirty-screen-y dirty-screen-x))
-      (setf (game-state-redraw-p game-state-in)
-            t)))
+      (mark-pad-dirty game-state-in map-pad-in prev-map-x prev-map-y)))
 
   (let ((cur-map-x (entity-map-x entity-in))
         (cur-map-y (entity-map-y entity-in)))
@@ -340,14 +361,18 @@
         (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x cur-entity-display-char-code)
         (when cur-entity-color-pair
           (charms/ll:wattroff map-pad-in cur-entity-color-pair))
-        (let ((dirty-screen-x (- cur-map-x (game-state-cur-x game-state-in)))
-              (dirty-screen-y (- cur-map-y (game-state-cur-y game-state-in))))
-          (charms/ll:pnoutrefresh map-pad-in
-                                  cur-map-y cur-map-x
-                                  dirty-screen-y dirty-screen-x
-                                  dirty-screen-y dirty-screen-x))
-        (setf (game-state-redraw-p game-state-in)
-            t)));)
+        (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y)));)
+)
+
+(defun mark-pad-dirty (game-state-in pad-in pad-x pad-y)
+  (let ((dirty-screen-x (- pad-x (game-state-cur-x game-state-in)))
+        (dirty-screen-y (- pad-y (game-state-cur-y game-state-in))))
+    (charms/ll:pnoutrefresh pad-in
+                            pad-y pad-x
+                            dirty-screen-y dirty-screen-x
+                            dirty-screen-y dirty-screen-x)
+    (setf (game-state-redraw-p game-state-in)
+          t))
 )
 
 ;; returns a 2d bit array
@@ -391,4 +416,26 @@
                    ;; delete timer
                    (remhash cur-name *active-async-timers*)))))
     *active-async-timers*)
+)
+
+;; --------------------------------------------------------------------------------------------------------------------
+
+(defun spawn-player (map-pad-in game-state-in
+                     map-x-in map-y-in)
+  (setf (game-state-player-entity game-state-in)
+        (spawn-entity map-pad-in
+                      game-state-in
+
+                      map-x-in
+                      map-y-in
+                      (char-code #\Space)
+                      +PLAYER_COLOR_PAIR+))
+)
+
+(defun clear-spawn-area (map-pad-in game-state-in
+                         map-x-in map-y-in)
+  (loop for x from (- map-x-in +MAP_SPAWN_RADIUS+) below (+ map-x-in +MAP_SPAWN_RADIUS+) do
+    (loop for y from (- map-y-in +MAP_SPAWN_RADIUS+) below (+ map-y-in +MAP_SPAWN_RADIUS+) do
+      (set-map-cell map-pad-in game-state-in
+                    x y 0)))
 )
