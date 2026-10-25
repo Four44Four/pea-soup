@@ -498,14 +498,10 @@
       ;;   return first valid position
       (loop named search-loop
             for layer-i from 1 below max-layers-in do
-        (let ((start-x (clamp (- map-x-in layer-i)
-                              0 (1- +MAP_WIDTH+)))
-              (end-x-inc (clamp (+ map-x-in layer-i)
-                                0 (1- +MAP_WIDTH+)))
-              (start-y (clamp (- map-y-in layer-i)
-                              0 (1- +MAP_HEIGHT+)))
-              (end-y-inc (clamp (+ map-y-in layer-i)
-                                0 (1- +MAP_HEIGHT+))))
+        (let ((start-x   (clamp (- map-x-in layer-i) 0 (1- +MAP_WIDTH+)))
+              (end-x-inc (clamp (+ map-x-in layer-i) 0 (1- +MAP_WIDTH+)))
+              (start-y   (clamp (- map-y-in layer-i) 0 (1- +MAP_HEIGHT+)))
+              (end-y-inc (clamp (+ map-y-in layer-i) 0 (1- +MAP_HEIGHT+))))
           ;; top + bottom edges
           (loop for x from start-x to end-x-inc do
             (when (zerop (sbit map-wall-data start-y x))
@@ -516,8 +512,8 @@
               (setq ret-map-x x
                     ret-map-y end-y-inc)
               (return-from search-loop)))
-          ;; left + right edges
-          (loop for y from start-y to end-y-inc do
+          ;; left + right edges (excluding corners)
+          (loop for y from (1+ start-y) below end-y-inc do
             (when (zerop (sbit map-wall-data y start-x))
               (setq ret-map-x start-x
                     ret-map-y y)
@@ -525,7 +521,12 @@
             (when (zerop (sbit map-wall-data y end-x-inc))
               (setq ret-map-x end-x-inc
                     ret-map-y y)
-              (return-from search-loop))))))
+              (return-from search-loop))))
+        finally
+          (progn
+            (setq ret-map-x nil
+                  ret-map-y nil)
+            (return-from search-loop))))
     (values ret-map-x ret-map-y))
 )
 
