@@ -123,6 +123,7 @@
 (defparameter +ENTITY_LIGHT_DMG_CHAR_CODE+ (char-code #\-))
 (defparameter +ENTITY_MEDIUM_DMG_CHAR_CODE+ (char-code #\O))
 (defparameter +ENTITY_HEAVY_DMG_CHAR_CODE+ (char-code #\@))
+(defparameter +ENTITY_REGEN_AMT_PER_TICK+ 2)
 
 (defstruct entity
   id
@@ -191,7 +192,7 @@
                 (start-async-timer "entities tick"
                                    :delay-time +ENTITIES_TICK_DELTA_TIME+
                                    :callback-fn #'(lambda ()
-                                                  (move-all-entities map-pad game-state-instance))
+                                                  (tick-all-entities map-pad game-state-instance))
                                    :repeat-p t)
 
                 (sdl2:with-event-loop (:method :poll)
@@ -350,6 +351,19 @@
     (t nil))
 )
 
+(defun get-display-char-code-entity (entity-in)
+  (let ((cur-health (entity-health entity-in)))
+    (cond
+      ((= cur-health +ENTITY_MAX_HEALTH+)
+        +ENTITY_NO_DMG_CHAR_CODE+)
+      ((>= cur-health 67)
+        +ENTITY_LIGHT_DMG_CHAR_CODE+)
+      ((>= cur-health 33)
+        +ENTITY_MEDIUM_DMG_CHAR_CODE+)
+      (t
+        +ENTITY_HEAVY_DMG_CHAR_CODE+)))
+)
+
 ;; updates `map-pad-in` and `game-state-in`
 (defun set-map-cell (map-pad-in game-state-in
                      map-x map-y wall-p-bit)
@@ -365,19 +379,6 @@
       (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)))
 
   (mark-pad-dirty game-state-in map-pad-in map-x map-y)
-)
-
-(defun get-display-char-code-entity (entity-in)
-  (let ((cur-health (entity-health entity-in)))
-    (cond
-      ((= cur-health +ENTITY_MAX_HEALTH+)
-        +ENTITY_NO_DMG_CHAR_CODE+)
-      ((>= cur-health 67)
-        +ENTITY_LIGHT_DMG_CHAR_CODE+)
-      ((>= cur-health 33)
-        +ENTITY_MEDIUM_DMG_CHAR_CODE+)
-      (t
-        +ENTITY_HEAVY_DMG_CHAR_CODE+)))
 )
 
 ;; should be called whenever `entity-in` moves on `map-pad-in`
@@ -699,6 +700,13 @@
     (values ret-map-x ret-map-y))
 )
 
+;; ------------------------------------------------------------------------------------------------------------
+
+(defun tick-all-entities (map-pad-in game-state-in)
+  (regen-all-entities map-pad-in game-state-in)
+  (move-all-entities map-pad-in game-state-in)
+)
+
 (defun move-all-entities (map-pad-in game-state-in)
   (do-hash-table (cur-entity-id cur-entity (game-state-entities game-state-in))
     (declare (ignore cur-entity-id))
@@ -715,4 +723,16 @@
       (3
         (move-entity game-state-in map-pad-in cur-entity
                      (entity-map-x cur-entity) (1- (entity-map-y cur-entity))))))
+)
+
+(defun regen-all-entities (map-pad-in game-state-in)
+  (do-hash-table (cur-entity-id cur-entity (game-state-entities game-state-in))
+    (declare (ignore cur-entity-id))
+    (when (< (entity-health cur-entity) +ENTITY_MAX_HEALTH+)
+      (incf (entity-health cur-entity)
+            +ENTITY_REGEN_AMT_PER_TICK+)
+      (when (> (entity-health cur-entity) +ENTITY_MAX_HEALTH+)
+        (setf (entity-health cur-entity)
+              +ENTITY_MAX_HEALTH+)))
+    (visual-update-health-entity game-state-in map-pad-in cur-entity))
 )

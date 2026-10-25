@@ -8,7 +8,7 @@
  - Research into locally runnable decision making AI models
  - Make a basic vegetable AI controlled NPC
 ```
-rules: healing others damages self, cannot move into walls, can only heal/attack directly adjacent entities
+rules: healing others damages self, cannot move into walls, can only heal/attack directly adjacent entities, regen over time
 walls X
 space _
 entity heavy damage #
