@@ -28,14 +28,20 @@
 (defmacro do-hash-table ((cur-key-sym-in cur-val-sym-in hash-table-in) &rest body-in)
   (let ((unint-next-fn (gensym))
         (unint-hash-table-in (gensym))
-        (unint-ended-p (gensym)))
+        (unint-ended-p (gensym))
+        (has-declares (and (consp (car body-in))
+                           (eq 'declare (caar body-in)))))
     `(let ((,unint-hash-table-in ,hash-table-in))
        (with-hash-table-iterator (,unint-next-fn ,unint-hash-table-in)
          (loop
            (multiple-value-bind (,unint-ended-p ,cur-key-sym-in ,cur-val-sym-in) (,unint-next-fn)
+             ,@(when has-declares
+                 (list (car body-in)))
              (unless ,unint-ended-p
                (return))
-               ,@body-in)))))
+             ,@(if has-declares
+                 (cdr body-in)
+                 body-in))))))
 )
 
 (defun clamp (v-in min-in max-in)
@@ -115,8 +121,8 @@
   id
   map-x
   map-y
-  display-char-code
   color-pair ;; can be `nil`
+  (health 100) ;; 0 to 100
   (prev-map-x -1)
   (prev-map-y -1)
   (prev-display-wall-p nil)
@@ -124,7 +130,7 @@
 
 (defstruct game-state
   map-wall-data ;; 2d array of bits (1 -> wall, 0 -> no-wall)
-  map-entity-data ;; 2d array of bits (1 -> entity, 0 -> no-entity)
+  map-entity-data ;; 2d array of integers (entity ids) (0 -> no-entity, >= 1 -> entity)
   ;; these represent the top left corner of the map as the "camera"
   (cur-x 0)
   (cur-y 0)
@@ -132,7 +138,7 @@
   (redraw-p nil)
   (player-entity nil) ;; can be `nil`
   (entities (make-hash-table :test #'eql))
-  (cur-entity-id 0)
+  (cur-entity-id 0 :type (unsigned-byte 32)) ;; starts at 1+ this value
 )
 
 (defun main ()
@@ -158,7 +164,7 @@
                      (map-pad (charms/ll:newpad +MAP_WIDTH+ +MAP_HEIGHT+))
                      (game-state-instance (make-game-state :map-wall-data (generate-map-wall-data +MAP_WIDTH+ +MAP_HEIGHT+)
                                                            :map-entity-data (make-array (list +MAP_HEIGHT+ +MAP_WIDTH+)
-                                                                                        :element-type 'bit
+                                                                                        :element-type '(unsigned-byte 32)
                                                                                         :initial-element 0)))
                      (first-frame-p t))
 
@@ -221,7 +227,10 @@
                                 (charms/ll:doupdate))))))
                       (sdl2:delay 1)))))
               (error (error-in)
-                (print-to-log-file "~%~A~%" error-in))))))))
+                (print-to-log-file "~%~A~%" error-in)
+                #+sbcl
+                  (print-to-log-file "~%~A~%" (with-output-to-string (strm-out)
+                                                (sb-debug:backtrace :stream strm-out))))))))))
 )
 
 ;; `get-next-char-fn` is a zero arg function that returns the next character in the input stream or `nil` if it has ended
@@ -328,11 +337,10 @@
                        cur-map-y cur-map-x)))
 
       ;; draw `entity-in` at new char cell
-      (let ((cur-entity-color-pair (entity-color-pair entity-in))
-            (cur-entity-display-char-code (entity-display-char-code entity-in)))
+      (let ((cur-entity-color-pair (entity-color-pair entity-in)))
         (when cur-entity-color-pair
           (charms/ll:wattron map-pad-in cur-entity-color-pair))
-        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x cur-entity-display-char-code)
+        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (char-code #\Space))
         (when cur-entity-color-pair
           (charms/ll:wattroff map-pad-in cur-entity-color-pair))
         (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y)));)
@@ -410,21 +418,21 @@
                             other-spawn-map-x other-spawn-map-y))))
 )
 
-;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `display-char-code-in` `color-pair-in`
+;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `color-pair-in`
 ;; returns the created entity instance
 ;;   modifies `game-state-in` as a side effect
 (defun spawn-entity (map-pad-in game-state-in
-                     map-x-in map-y-in display-char-code-in color-pair-in)
+                     map-x-in map-y-in color-pair-in)
   (incf (game-state-cur-entity-id game-state-in))
   (let* ((cur-entity-id (game-state-cur-entity-id game-state-in))
          (ret-entity (make-entity :id cur-entity-id
                                   :map-x map-x-in :map-y map-y-in
-                                  :display-char-code display-char-code-in :color-pair color-pair-in)))
+                                  :color-pair color-pair-in)))
     (setf (gethash cur-entity-id
                    (game-state-entities game-state-in))
           ret-entity)
-    (setf (sbit (game-state-map-entity-data game-state-in) map-y-in map-x-in)
-          1)
+    (setf (aref (game-state-map-entity-data game-state-in) map-y-in map-x-in)
+          cur-entity-id)
     (visual-move-entity game-state-in map-pad-in ret-entity)
     ret-entity)
 )
@@ -439,13 +447,13 @@
               (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+)
               (= 1 (sbit (game-state-map-wall-data game-state-in)
                          new-map-y new-map-x))
-              (= 1 (sbit (game-state-map-entity-data game-state-in)
-                         new-map-y new-map-x)))
+              (/= 0 (aref (game-state-map-entity-data game-state-in)
+                           new-map-y new-map-x)))
     (setf (entity-prev-map-x entity-in) (entity-map-x entity-in)
           (entity-prev-map-y entity-in) (entity-map-y entity-in)
-          (sbit (game-state-map-entity-data game-state-in) new-map-y new-map-x)
-            1
-          (sbit (game-state-map-entity-data game-state-in) (entity-map-y entity-in) (entity-map-x entity-in))
+          (aref (game-state-map-entity-data game-state-in) new-map-y new-map-x)
+            (entity-id entity-in)
+          (aref (game-state-map-entity-data game-state-in) (entity-map-y entity-in) (entity-map-x entity-in))
             0
           (entity-map-x entity-in) new-map-x
           (entity-map-y entity-in) new-map-y)
@@ -462,7 +470,6 @@
         (spawn-entity map-pad-in game-state-in
                       map-x-in
                       map-y-in
-                      (char-code #\Space)
                       +PLAYER_COLOR_PAIR+))
 )
 
@@ -481,7 +488,6 @@
       (spawn-entity map-pad-in game-state-in
                     spawn-map-x
                     spawn-map-y
-                    (char-code #\Space)
                     +OTHERS_COLOR_PAIR+)))
 )
 
@@ -532,6 +538,7 @@
 
 (defun move-all-entities (map-pad-in game-state-in)
   (do-hash-table (cur-entity-id cur-entity (game-state-entities game-state-in))
+    (declare (ignore cur-entity-id))
     (case (random 4)
       (0
         (move-entity game-state-in map-pad-in cur-entity

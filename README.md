@@ -4,6 +4,9 @@
 # How to run
  - `sbcl --script start.lisp`
 
+# Lint syntax errors
+ - `sbcl --script lint.lisp`
+
 # External dependencies (package these when distributing binaries later)
  - `sdl2`
     - On Linux: Use a packaging build Docker container with `libsdl2`
