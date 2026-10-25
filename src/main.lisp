@@ -25,6 +25,19 @@
       (finish-output file-strm)))
 )
 
+(defmacro do-hash-table ((cur-key-sym-in cur-val-sym-in hash-table-in) &rest body-in)
+  (let ((unint-next-fn (gensym))
+        (unint-hash-table-in (gensym))
+        (unint-ended-p (gensym)))
+    `(let ((,unint-hash-table-in ,hash-table-in))
+       (with-hash-table-iterator (,unint-next-fn ,unint-hash-table-in)
+         (loop
+           (multiple-value-bind (,unint-ended-p ,cur-key-sym-in ,cur-val-sym-in) (,unint-next-fn)
+             (unless ,unint-ended-p
+               (return))
+               ,@body-in)))))
+)
+
 (defun clamp (v-in min-in max-in)
   (max min-in (min v-in max-in))
 )
@@ -96,6 +109,7 @@
 (defparameter +MAP_SPAWN_RADIUS+ 10)
 (defparameter +OTHERS_SPAWN_MAX_INIT_RADIUS+ 5)
 (defparameter +OTHERS_SPAWN_MAX_TRY_RADIUS+ 10)
+(defparameter +ENTITIES_TICK_DELTA_TIME+ (* 1 internal-time-units-per-second))
 
 (defstruct entity
   id
@@ -158,6 +172,12 @@
                         (charms/ll:mvwaddch map-pad y x (char-code #\Space))
                         (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+)))))
 
+                (start-async-timer "entities tick"
+                                   :delay-time +ENTITIES_TICK_DELTA_TIME+
+                                   :callback-fn #'(lambda ()
+                                                  (move-all-entities map-pad game-state-instance))
+                                   :repeat-p t)
+
                 (sdl2:with-event-loop (:method :poll)
                   (:quit ()
                     t)
@@ -166,7 +186,6 @@
                            (elapsed-time (- cur-time last-frame-time)))
                       (when (>= elapsed-time +REFRESH_DELTA_TIME+)
                         (setf last-frame-time cur-time)
-                        (run-or-update-async-timers)
 
                         (multiple-value-bind (cur-win-width cur-win-height)
                             (charms:window-dimensions main-window)
@@ -175,6 +194,8 @@
                             ;; reset `moved-p` + `redraw-p`
                             (setf (game-state-moved-p game-state-instance) nil
                                   (game-state-redraw-p game-state-instance) nil)
+                            (run-or-update-async-timers)
+
                             ;; drain queued input
                             (loop for cur-char = (funcall get-next-char-fn)
                                   while cur-char do
@@ -356,19 +377,18 @@
 
 ;; destructive to `*active-async-timers*`
 (defun run-or-update-async-timers ()
-  (maphash #'(lambda (cur-name cur-async-timer)
-             (let ((cur-time (get-internal-real-time)))
-               ;; is `cur-async-timer` expired ?
-               (when (>= (- cur-time (async-timer-start-time cur-async-timer))
-                         (async-timer-delay-time cur-async-timer))
-                 (funcall (async-timer-callback-fn cur-async-timer))
-                 (if (async-timer-repeat-p cur-async-timer)
-                   ;; update start time + don't delete timer
-                   (setf (async-timer-start-time cur-async-timer)
-                         cur-time)
-                   ;; delete timer
-                   (remhash cur-name *active-async-timers*)))))
-    *active-async-timers*)
+  (do-hash-table (cur-name cur-async-timer *active-async-timers*)
+    (let ((cur-time (get-internal-real-time)))
+      ;; is `cur-async-timer` expired ?
+      (when (>= (- cur-time (async-timer-start-time cur-async-timer))
+                (async-timer-delay-time cur-async-timer))
+        (funcall (async-timer-callback-fn cur-async-timer))
+        (if (async-timer-repeat-p cur-async-timer)
+          ;; update start time + don't delete timer
+          (setf (async-timer-start-time cur-async-timer)
+                cur-time)
+          ;; delete timer
+          (remhash cur-name *active-async-timers*)))))
 )
 
 ;; --------------------------------------------------------------------------------------------------------------------
@@ -507,4 +527,21 @@
                     ret-map-y y)
               (return-from search-loop))))))
     (values ret-map-x ret-map-y))
+)
+
+(defun move-all-entities (map-pad-in game-state-in)
+  (do-hash-table (cur-entity-id cur-entity (game-state-entities game-state-in))
+    (case (random 4)
+      (0
+        (move-entity game-state-in map-pad-in cur-entity
+                     (1+ (entity-map-x cur-entity)) (entity-map-y cur-entity)))
+      (1
+        (move-entity game-state-in map-pad-in cur-entity
+                     (1- (entity-map-x cur-entity)) (entity-map-y cur-entity)))
+      (2
+        (move-entity game-state-in map-pad-in cur-entity
+                     (entity-map-x cur-entity) (1+ (entity-map-y cur-entity))))
+      (3
+        (move-entity game-state-in map-pad-in cur-entity
+                     (entity-map-x cur-entity) (1- (entity-map-y cur-entity))))))
 )
