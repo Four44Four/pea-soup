@@ -94,6 +94,8 @@
 (defparameter +MAP_WIDTH+ 400)
 (defparameter +MAP_HEIGHT+ 400)
 (defparameter +MAP_SPAWN_RADIUS+ 10)
+(defparameter +OTHERS_SPAWN_MAX_INIT_RADIUS+ 5)
+(defparameter +OTHERS_SPAWN_MAX_TRY_RADIUS+ 10)
 
 (defstruct entity
   id
@@ -107,7 +109,8 @@
 )
 
 (defstruct game-state
-  map-data ;; 2d array of bits (1 -> wall, 0 -> no-wall)
+  map-wall-data ;; 2d array of bits (1 -> wall, 0 -> no-wall)
+  map-entity-data ;; 2d array of bits (1 -> entity, 0 -> no-entity)
   ;; these represent the top left corner of the map as the "camera"
   (cur-x 0)
   (cur-y 0)
@@ -139,13 +142,16 @@
                                          (charms:get-char main-window :ignore-error t)))
                      (last-frame-time (get-internal-real-time))
                      (map-pad (charms/ll:newpad +MAP_WIDTH+ +MAP_HEIGHT+))
-                     (game-state-instance (make-game-state :map-data (generate-map-data +MAP_WIDTH+ +MAP_HEIGHT+)))
+                     (game-state-instance (make-game-state :map-wall-data (generate-map-wall-data +MAP_WIDTH+ +MAP_HEIGHT+)
+                                                           :map-entity-data (make-array (list +MAP_HEIGHT+ +MAP_WIDTH+)
+                                                                                        :element-type 'bit
+                                                                                        :initial-element 0)))
                      (first-frame-p t))
 
                 ;; populate `map-pad` according to game state
                 (loop for x from 0 below +MAP_WIDTH+ do
                   (loop for y from 0 below +MAP_HEIGHT+ do
-                    (if (zerop (sbit (game-state-map-data game-state-instance) y x))
+                    (if (zerop (sbit (game-state-map-wall-data game-state-instance) y x))
                       (charms/ll:mvwaddch map-pad y x (char-code #\Space))
                       (progn
                         (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
@@ -195,20 +201,6 @@
                       (sdl2:delay 1)))))
               (error (error-in)
                 (print-to-log-file "~%~A~%" error-in))))))))
-)
-
-(defun on-first-frame (map-pad-in game-state-in
-                       viewport-width-in viewport-height-in)
-  (let ((spawn-map-x (+ (game-state-cur-x game-state-in) (ash viewport-width-in -1)))
-        (spawn-map-y (+ (game-state-cur-y game-state-in) (ash viewport-height-in -1))))
-
-    (clear-spawn-area map-pad-in game-state-in spawn-map-x spawn-map-y)
-
-    (spawn-player map-pad-in game-state-in spawn-map-x spawn-map-y)
-
-    ;; spawn NPCs
-    (dotimes (i 10)
-      ))
 )
 
 ;; `get-next-char-fn` is a zero arg function that returns the next character in the input stream or `nil` if it has ended
@@ -278,7 +270,7 @@
 ;; updates `map-pad-in` and `game-state-in`
 (defun set-map-cell (map-pad-in game-state-in
                      map-x map-y wall-p-bit)
-  (setf (sbit (game-state-map-data game-state-in)
+  (setf (sbit (game-state-map-wall-data game-state-in)
               map-y map-x)
         wall-p-bit)
 
@@ -290,45 +282,6 @@
       (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)))
 
   (mark-pad-dirty game-state-in map-pad-in map-x map-y)
-)
-
-;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `display-char-code-in` `color-pair-in`
-;; returns the created entity instance
-;;   modifies `game-state-in` as a side effect
-(defun spawn-entity (map-pad-in game-state-in
-                     map-x-in map-y-in display-char-code-in color-pair-in)
-  (incf (game-state-cur-entity-id game-state-in))
-  (let* ((cur-entity-id (game-state-cur-entity-id game-state-in))
-         (ret-entity (make-entity :id cur-entity-id
-                                  :map-x map-x-in :map-y map-y-in
-                                  :display-char-code display-char-code-in :color-pair color-pair-in)))
-    (setf (gethash cur-entity-id
-                   (game-state-entities game-state-in))
-          ret-entity)
-    (visual-move-entity game-state-in map-pad-in ret-entity)
-    ret-entity)
-)
-
-;; attempts to move `entity-in` to `new-map-x` `new-map-y`
-;; returns non-`nil` if successfully moved `entity-in`
-;;         or `nil` if `entity-in` remains at the same place due to cancelled movement
-;; `new-map-x` and `new-map-y` are `map-data-in` relative
-(defun move-entity (game-state-in map-pad-in ;map-data-in
-                     entity-in
-                    new-map-x new-map-y)
-  ;; TODO: also make it not be able to intersect with other entities
-  (unless (or (< new-map-x 0) (>= new-map-x +MAP_WIDTH+)
-              (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+)
-              (= 1 (sbit (game-state-map-data game-state-in)
-                         new-map-y new-map-x)))
-    (setf (entity-prev-map-x entity-in) (entity-map-x entity-in)
-          (entity-prev-map-y entity-in) (entity-map-y entity-in)
-          (entity-map-x entity-in) new-map-x
-          (entity-map-y entity-in) new-map-y)
-
-    (visual-move-entity game-state-in map-pad-in entity-in)
-
-    t)
 )
 
 ;; should be called whenever `entity-in` moves on `map-pad-in`
@@ -350,7 +303,7 @@
         (cur-map-y (entity-map-y entity-in)))
       ;; update other wall display information for `entity-in`
       (setf (entity-prev-display-wall-p entity-in)
-            (= 1 (sbit (game-state-map-data game-state-in)
+            (= 1 (sbit (game-state-map-wall-data game-state-in)
                        cur-map-y cur-map-x)))
 
       ;; draw `entity-in` at new char cell
@@ -376,7 +329,7 @@
 )
 
 ;; returns a 2d bit array
-(defun generate-map-data (width-in height-in)
+(defun generate-map-wall-data (width-in height-in)
   (let ((ret-arr (make-array (list height-in width-in)
                              :element-type 'bit
                              :initial-element 0)))
@@ -420,12 +373,73 @@
 
 ;; --------------------------------------------------------------------------------------------------------------------
 
+(defun on-first-frame (map-pad-in game-state-in
+                       viewport-width-in viewport-height-in)
+  (let ((spawn-map-x (+ (game-state-cur-x game-state-in) (ash viewport-width-in -1)))
+        (spawn-map-y (+ (game-state-cur-y game-state-in) (ash viewport-height-in -1))))
+
+    (clear-spawn-area map-pad-in game-state-in spawn-map-x spawn-map-y)
+
+    (spawn-player map-pad-in game-state-in spawn-map-x spawn-map-y)
+
+    ;; spawn NPCs
+    (dotimes (i 10)
+      (let ((other-spawn-map-x (+ spawn-map-x (- (random (1+ (* 2 +OTHERS_SPAWN_MAX_INIT_RADIUS+))) +OTHERS_SPAWN_MAX_INIT_RADIUS+)))
+            (other-spawn-map-y (+ spawn-map-y (- (random (1+ (* 2 +OTHERS_SPAWN_MAX_INIT_RADIUS+))) +OTHERS_SPAWN_MAX_INIT_RADIUS+))))
+        (spawn-other-entity map-pad-in game-state-in
+                            other-spawn-map-x other-spawn-map-y))))
+)
+
+;; creates a new entity and renders it on `map-pad-in` at `map-x-in` `map-y-in` with `display-char-code-in` `color-pair-in`
+;; returns the created entity instance
+;;   modifies `game-state-in` as a side effect
+(defun spawn-entity (map-pad-in game-state-in
+                     map-x-in map-y-in display-char-code-in color-pair-in)
+  (incf (game-state-cur-entity-id game-state-in))
+  (let* ((cur-entity-id (game-state-cur-entity-id game-state-in))
+         (ret-entity (make-entity :id cur-entity-id
+                                  :map-x map-x-in :map-y map-y-in
+                                  :display-char-code display-char-code-in :color-pair color-pair-in)))
+    (setf (gethash cur-entity-id
+                   (game-state-entities game-state-in))
+          ret-entity)
+    (setf (sbit (game-state-map-entity-data game-state-in) map-y-in map-x-in)
+          1)
+    (visual-move-entity game-state-in map-pad-in ret-entity)
+    ret-entity)
+)
+
+;; attempts to move `entity-in` to `new-map-x` `new-map-y`
+;; returns non-`nil` if successfully moved `entity-in`
+;;         or `nil` if `entity-in` remains at the same place due to cancelled movement
+(defun move-entity (game-state-in map-pad-in
+                     entity-in
+                    new-map-x new-map-y)
+  (unless (or (< new-map-x 0) (>= new-map-x +MAP_WIDTH+)
+              (< new-map-y 0) (>= new-map-y +MAP_HEIGHT+)
+              (= 1 (sbit (game-state-map-wall-data game-state-in)
+                         new-map-y new-map-x))
+              (= 1 (sbit (game-state-map-entity-data game-state-in)
+                         new-map-y new-map-x)))
+    (setf (entity-prev-map-x entity-in) (entity-map-x entity-in)
+          (entity-prev-map-y entity-in) (entity-map-y entity-in)
+          (sbit (game-state-map-entity-data game-state-in) new-map-y new-map-x)
+            1
+          (sbit (game-state-map-entity-data game-state-in) (entity-map-y entity-in) (entity-map-x entity-in))
+            0
+          (entity-map-x entity-in) new-map-x
+          (entity-map-y entity-in) new-map-y)
+
+
+    (visual-move-entity game-state-in map-pad-in entity-in)
+
+    t)
+)
+
 (defun spawn-player (map-pad-in game-state-in
                      map-x-in map-y-in)
   (setf (game-state-player-entity game-state-in)
-        (spawn-entity map-pad-in
-                      game-state-in
-
+        (spawn-entity map-pad-in game-state-in
                       map-x-in
                       map-y-in
                       (char-code #\Space)
@@ -438,4 +452,59 @@
     (loop for y from (- map-y-in +MAP_SPAWN_RADIUS+) below (+ map-y-in +MAP_SPAWN_RADIUS+) do
       (set-map-cell map-pad-in game-state-in
                     x y 0)))
+)
+
+(defun spawn-other-entity (map-pad-in game-state-in
+                           map-x-in map-y-in)
+  (multiple-value-bind (spawn-map-x spawn-map-y) (get-next-available-pos game-state-in map-x-in map-y-in +OTHERS_SPAWN_MAX_TRY_RADIUS+)
+    (when spawn-map-x
+      (spawn-entity map-pad-in game-state-in
+                    spawn-map-x
+                    spawn-map-y
+                    (char-code #\Space)
+                    +OTHERS_COLOR_PAIR+)))
+)
+
+;; returns valid map-x and map-y
+;;         or `nil` if none are found
+;; `max-layers-in` must be >= 1
+(defun get-next-available-pos (game-state-in map-x-in map-y-in max-layers-in)
+  (let ((ret-map-x map-x-in)
+        (ret-map-y map-y-in)
+        (map-wall-data (game-state-map-wall-data game-state-in)))
+    ;; only attempt searching if the original `map-x-in` and `map-y-in` are not valid
+    (unless (zerop (sbit map-wall-data ret-map-y ret-map-x))
+      ;; square search out 1 layer at a time
+      ;;   return first valid position
+      (loop named search-loop
+            for layer-i from 1 below max-layers-in do
+        (let ((start-x (clamp (- map-x-in layer-i)
+                              0 (1- +MAP_WIDTH+)))
+              (end-x-inc (clamp (+ map-x-in layer-i)
+                                0 (1- +MAP_WIDTH+)))
+              (start-y (clamp (- map-y-in layer-i)
+                              0 (1- +MAP_HEIGHT+)))
+              (end-y-inc (clamp (+ map-y-in layer-i)
+                                0 (1- +MAP_HEIGHT+))))
+          ;; top + bottom edges
+          (loop for x from start-x to end-x-inc do
+            (when (zerop (sbit map-wall-data start-y x))
+              (setq ret-map-x x
+                    ret-map-y start-y)
+              (return-from search-loop))
+            (when (zerop (sbit map-wall-data end-y-inc x))
+              (setq ret-map-x x
+                    ret-map-y end-y-inc)
+              (return-from search-loop)))
+          ;; left + right edges
+          (loop for y from start-y to end-y-inc do
+            (when (zerop (sbit map-wall-data y start-x))
+              (setq ret-map-x start-x
+                    ret-map-y y)
+              (return-from search-loop))
+            (when (zerop (sbit map-wall-data y end-x-inc))
+              (setq ret-map-x end-x-inc
+                    ret-map-y y)
+              (return-from search-loop))))))
+    (values ret-map-x ret-map-y))
 )
