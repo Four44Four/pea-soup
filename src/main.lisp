@@ -57,7 +57,7 @@
 ;; COLORS
 (defconstant +NO_COLOR_ID+ -1)
 
-(defconstant +BROWN1_ID+ 10)
+(defconstant +YELLOW1_ID+ 10)
 (defconstant +WALL_COLOR_PAIR_ID+ 1)
 (defparameter +WALL_COLOR_PAIR+ nil)
 
@@ -73,8 +73,8 @@
   (charms/ll:start-color)
   (charms/ll:use-default-colors)
 
-  (charms/ll:init-color +BROWN1_ID+ 647 165 165)
-  (charms/ll:init-pair +WALL_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +BROWN1_ID+)
+  (charms/ll:init-color +YELLOW1_ID+ 467 420 239)
+  (charms/ll:init-pair +WALL_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +YELLOW1_ID+)
   (setq +WALL_COLOR_PAIR+ (charms/ll:color-pair +WALL_COLOR_PAIR_ID+))
 
   (charms/ll:init-color +GREEN1_ID+ 500 1000 250)

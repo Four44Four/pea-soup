@@ -1,8 +1,4 @@
 # Sprint 1
- - Make a controllable character
- - Make procedural map generation/rendering
-    - Ensure that the controllable character properly interacts with the map's generated walls
-    - Can move to adjacent, attack adjacent, heal adjacent (subtracts from own health), heal self passively, has health 0-100
  - Test for building/packaging test project on targetted platforms (Windows and Linux)
 # Sprint 2
  - Research into locally runnable decision making AI models
