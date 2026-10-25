@@ -116,6 +116,11 @@
 (defparameter +OTHERS_SPAWN_MAX_INIT_RADIUS+ 5)
 (defparameter +OTHERS_SPAWN_MAX_TRY_RADIUS+ 10)
 (defparameter +ENTITIES_TICK_DELTA_TIME+ (* 1 internal-time-units-per-second))
+(defparameter +ENTITY_NORMAL_ATK_DMG+ 10)
+(defparameter +ENTITY_NO_DMG_CHAR_CODE+ (char-code #\Space))
+(defparameter +ENTITY_LIGHT_DMG_CHAR_CODE+ (char-code #\-))
+(defparameter +ENTITY_MEDIUM_DMG_CHAR_CODE+ (char-code #\O))
+(defparameter +ENTITY_HEAVY_DMG_CHAR_CODE+ (char-code #\@))
 
 (defstruct entity
   id
@@ -140,6 +145,9 @@
   (entities (make-hash-table :test #'eql))
   (cur-entity-id 0 :type (unsigned-byte 32)) ;; starts at 1+ this value
 )
+
+(deftype direction ()
+  `(member :up :down :left :right))
 
 (defun main ()
   (sdl2:make-this-thread-main
@@ -294,6 +302,26 @@
         (when player-entity
           (move-entity game-state-in map-pad-in player-entity
                        (1+ (entity-map-x player-entity)) (entity-map-y player-entity)))))
+    (#\I
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (attack-entity game-state-in map-pad-in player-entity
+                         :up))))
+    (#\J
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (attack-entity game-state-in map-pad-in player-entity
+                         :left))))
+    (#\K
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (attack-entity game-state-in map-pad-in player-entity
+                         :down))))
+    (#\L
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (attack-entity game-state-in map-pad-in player-entity
+                         :right))))
     (t nil))
 )
 
@@ -314,6 +342,19 @@
   (mark-pad-dirty game-state-in map-pad-in map-x map-y)
 )
 
+(defun get-display-char-code-entity (entity-in)
+  (let ((cur-health (entity-health entity-in)))
+    (cond
+      ((= cur-health 100)
+        +ENTITY_NO_DMG_CHAR_CODE+)
+      ((>= cur-health 67)
+        +ENTITY_LIGHT_DMG_CHAR_CODE+)
+      ((>= cur-health 33)
+        +ENTITY_MEDIUM_DMG_CHAR_CODE+)
+      (t
+        +ENTITY_HEAVY_DMG_CHAR_CODE+)))
+)
+
 ;; should be called whenever `entity-in` moves on `map-pad-in`
 (defun visual-move-entity (game-state-in map-pad-in entity-in)
   ;; erase `entity-in` at prev map cells
@@ -331,19 +372,36 @@
 
   (let ((cur-map-x (entity-map-x entity-in))
         (cur-map-y (entity-map-y entity-in)))
-      ;; update other wall display information for `entity-in`
-      (setf (entity-prev-display-wall-p entity-in)
-            (= 1 (sbit (game-state-map-wall-data game-state-in)
-                       cur-map-y cur-map-x)))
+    ;; update other wall display information for `entity-in`
+    (setf (entity-prev-display-wall-p entity-in)
+          (= 1 (sbit (game-state-map-wall-data game-state-in)
+                     cur-map-y cur-map-x)))
 
-      ;; draw `entity-in` at new char cell
-      (let ((cur-entity-color-pair (entity-color-pair entity-in)))
-        (when cur-entity-color-pair
-          (charms/ll:wattron map-pad-in cur-entity-color-pair))
-        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (char-code #\Space))
-        (when cur-entity-color-pair
-          (charms/ll:wattroff map-pad-in cur-entity-color-pair))
-        (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y)));)
+    ;; draw `entity-in` at new char cell
+    (let ((cur-entity-color-pair (entity-color-pair entity-in)))
+      (when cur-entity-color-pair
+        (charms/ll:wattron map-pad-in cur-entity-color-pair))
+      (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
+      (when cur-entity-color-pair
+        (charms/ll:wattroff map-pad-in cur-entity-color-pair))
+      (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y)));)
+)
+
+(defun visual-update-health-entity (game-state-in map-pad-in entity-in)
+  (let ((cur-map-x (entity-map-x entity-in))
+        (cur-map-y (entity-map-y entity-in))
+        (cur-color-pair (entity-color-pair entity-in)))
+    (if (zerop (entity-health entity-in))
+      ;; dead: clear the spot
+      (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (char-code #\Space))
+      ;; not dead: maybe update the display char
+      (progn
+        (when cur-color-pair
+          (charms/ll:wattron map-pad-in cur-color-pair))
+        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
+        (when cur-color-pair
+          (charms/ll:wattroff map-pad-in cur-color-pair))))
+    (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y))
 )
 
 (defun mark-pad-dirty (game-state-in pad-in pad-x pad-y)
@@ -463,6 +521,54 @@
 
     t)
 )
+
+(defun maybe-remove-dead-entity (game-state-in entity-in)
+  (let ((cur-health (entity-health entity-in)))
+    (when (zerop cur-health)
+      (setf (aref (game-state-map-entity-data game-state-in) (entity-map-y entity-in) (entity-map-x entity-in))
+            0)
+      (remhash (entity-id entity-in)
+               (game-state-entities game-state-in))))
+)
+
+;; TODO: maybe add  "shield" that can be activated to reduce dmg in the direction of previous movement 
+
+;; deals `+ENTITY_NORMAL_ATK_DMG+` to whatever enemy is in `direction-in` relative to `entity-in`
+;; returns the attacked entity, or `nil`
+;;   also updates `game-state-in` according to if the attack damaged or killed an entity
+(defun attack-entity (game-state-in map-pad-in entity-in direction-in)
+  (declare (type direction direction-in))
+  (let ((target-entity-id 0)
+        (src-map-x (entity-map-x entity-in))
+        (src-map-y (entity-map-y entity-in))
+        (map-entity-data (game-state-map-entity-data game-state-in)))
+    (setq target-entity-id (ecase direction-in
+                             (:up
+                               (aref map-entity-data (1- src-map-y) src-map-x))
+                             (:down
+                               (aref map-entity-data (1+ src-map-y) src-map-x))
+                             (:left
+                               (aref map-entity-data src-map-y (1- src-map-x)))
+                             (:right
+                               (aref map-entity-data src-map-y (1+ src-map-x)))))
+    (unless (zerop target-entity-id)
+      (let ((target-entity (gethash target-entity-id
+                                    (game-state-entities game-state-in))))
+        (decf (entity-health target-entity)
+              +ENTITY_NORMAL_ATK_DMG+)
+        (visual-update-health-entity game-state-in map-pad-in entity-in)
+        (maybe-remove-dead-entity game-state-in target-entity)
+        target-entity)))
+)
+
+;; (defun heal-entity (game-state-in map-pad-in entity-in direction-in)
+;;   (declare (type direction direction-in))
+;;   (ecase direction-in
+;;     (:up )
+;;     (:down )
+;;     (:left )
+;;     (:right ))
+;; )
 
 (defun spawn-player (map-pad-in game-state-in
                      map-x-in map-y-in)
