@@ -117,6 +117,8 @@
 (defparameter +OTHERS_SPAWN_MAX_TRY_RADIUS+ 10)
 (defparameter +ENTITIES_TICK_DELTA_TIME+ (* 1 internal-time-units-per-second))
 (defparameter +ENTITY_NORMAL_ATK_DMG+ 10)
+(defparameter +ENTITY_NORMAL_HEAL_AMT+ 10)
+(defparameter +ENTITY_MAX_HEALTH+ 100)
 (defparameter +ENTITY_NO_DMG_CHAR_CODE+ (char-code #\Space))
 (defparameter +ENTITY_LIGHT_DMG_CHAR_CODE+ (char-code #\-))
 (defparameter +ENTITY_MEDIUM_DMG_CHAR_CODE+ (char-code #\O))
@@ -127,7 +129,7 @@
   map-x
   map-y
   color-pair ;; can be `nil`
-  (health 100) ;; 0 to 100
+  (health +ENTITY_MAX_HEALTH+) ;; 0 to `+ENTITY_MAX_HEALTH+`
   (prev-map-x -1)
   (prev-map-y -1)
   (prev-display-wall-p nil)
@@ -246,12 +248,35 @@
                            max-cam-map-x max-cam-map-y
                            map-pad-in)
   (case first-input-char-in
-    ;; exit if `ESC` key is pressed
     (#\Esc
-      ;; check if **not** arrow key
       (let ((next-input-char-in (funcall get-next-char-fn)))
-        (unless (and next-input-char-in (char= #\[ next-input-char-in))
-          (sdl2:push-event :quit))))
+        (case next-input-char-in
+          ;; check ALT keybind combinations
+          (#\i
+            (let ((player-entity (game-state-player-entity game-state-in)))
+              (when player-entity
+                (heal-entity game-state-in map-pad-in player-entity
+                             :up))))
+          (#\j
+            (let ((player-entity (game-state-player-entity game-state-in)))
+              (when player-entity
+                (heal-entity game-state-in map-pad-in player-entity
+                             :left))))
+          (#\k
+            (let ((player-entity (game-state-player-entity game-state-in)))
+              (when player-entity
+                (heal-entity game-state-in map-pad-in player-entity
+                             :down))))
+          (#\l
+            (let ((player-entity (game-state-player-entity game-state-in)))
+              (when player-entity
+                (heal-entity game-state-in map-pad-in player-entity
+                             :right))))
+          (t
+            ;; TODO: remove this one arrows are implemented
+            ;; check if non-arrow key: exit
+            (unless (and next-input-char-in (char= #\[ next-input-char-in))
+              (sdl2:push-event :quit))))))
     (#\Space
       (sdl2-mixer:play-channel -1 +BOING_MP3+ +NO_LOOP_AUDIO+))
     (#\w
@@ -345,7 +370,7 @@
 (defun get-display-char-code-entity (entity-in)
   (let ((cur-health (entity-health entity-in)))
     (cond
-      ((= cur-health 100)
+      ((= cur-health +ENTITY_MAX_HEALTH+)
         +ENTITY_NO_DMG_CHAR_CODE+)
       ((>= cur-health 67)
         +ENTITY_LIGHT_DMG_CHAR_CODE+)
@@ -528,47 +553,79 @@
       (setf (aref (game-state-map-entity-data game-state-in) (entity-map-y entity-in) (entity-map-x entity-in))
             0)
       (remhash (entity-id entity-in)
-               (game-state-entities game-state-in))))
+               (game-state-entities game-state-in))
+      (when (eq entity-in (game-state-player-entity game-state-in))
+        (setf (game-state-player-entity game-state-in)
+              nil))))
+)
+
+(defun get-entity-id-in-direction (game-state-in direction-in src-map-x src-map-y)
+  (declare (type direction direction-in))
+  (let ((map-entity-data (game-state-map-entity-data game-state-in)))
+    (ecase direction-in
+      (:up
+        (aref map-entity-data (1- src-map-y) src-map-x))
+      (:down
+        (aref map-entity-data (1+ src-map-y) src-map-x))
+      (:left
+        (aref map-entity-data src-map-y (1- src-map-x)))
+      (:right
+        (aref map-entity-data src-map-y (1+ src-map-x)))))
 )
 
 ;; TODO: maybe add  "shield" that can be activated to reduce dmg in the direction of previous movement 
 
-;; deals `+ENTITY_NORMAL_ATK_DMG+` to whatever enemy is in `direction-in` relative to `entity-in`
+;; deals `+ENTITY_NORMAL_ATK_DMG+` to whatever entity is in `direction-in` relative to `entity-in`
 ;; returns the attacked entity, or `nil`
 ;;   also updates `game-state-in` according to if the attack damaged or killed an entity
 (defun attack-entity (game-state-in map-pad-in entity-in direction-in)
   (declare (type direction direction-in))
   (let ((target-entity-id 0)
         (src-map-x (entity-map-x entity-in))
-        (src-map-y (entity-map-y entity-in))
-        (map-entity-data (game-state-map-entity-data game-state-in)))
-    (setq target-entity-id (ecase direction-in
-                             (:up
-                               (aref map-entity-data (1- src-map-y) src-map-x))
-                             (:down
-                               (aref map-entity-data (1+ src-map-y) src-map-x))
-                             (:left
-                               (aref map-entity-data src-map-y (1- src-map-x)))
-                             (:right
-                               (aref map-entity-data src-map-y (1+ src-map-x)))))
+        (src-map-y (entity-map-y entity-in)))
+    (setq target-entity-id (get-entity-id-in-direction game-state-in direction-in src-map-x src-map-y))
     (unless (zerop target-entity-id)
       (let ((target-entity (gethash target-entity-id
                                     (game-state-entities game-state-in))))
         (decf (entity-health target-entity)
               +ENTITY_NORMAL_ATK_DMG+)
-        (visual-update-health-entity game-state-in map-pad-in entity-in)
+        (when (< (entity-health target-entity) 0)
+          (setf (entity-health target-entity)
+                0))
+        (visual-update-health-entity game-state-in map-pad-in target-entity)
         (maybe-remove-dead-entity game-state-in target-entity)
         target-entity)))
 )
 
-;; (defun heal-entity (game-state-in map-pad-in entity-in direction-in)
-;;   (declare (type direction direction-in))
-;;   (ecase direction-in
-;;     (:up )
-;;     (:down )
-;;     (:left )
-;;     (:right ))
-;; )
+;; heals `+ENTITY_NORMAL_HEAL_AMT+` to whatever entity is in `direction-in` relative to `entity-in`
+;; damages `entity-in` if successfully healed
+;; returns the healed entity, or `nil`
+;;   also updates `game-state-in` according to if the heal succeeded
+(defun heal-entity (game-state-in map-pad-in entity-in direction-in)
+  (declare (type direction direction-in))
+  (let ((target-entity-id 0)
+        (src-map-x (entity-map-x entity-in))
+        (src-map-y (entity-map-y entity-in)))
+    (setq target-entity-id (get-entity-id-in-direction game-state-in direction-in src-map-x src-map-y))
+    (unless (zerop target-entity-id)
+      (let* ((target-entity (gethash target-entity-id
+                                     (game-state-entities game-state-in)))
+             (og-target-health (entity-health target-entity)))
+        (incf (entity-health target-entity)
+              +ENTITY_NORMAL_HEAL_AMT+)
+        (when (> (entity-health target-entity) +ENTITY_MAX_HEALTH+)
+          (setf (entity-health target-entity)
+                +ENTITY_MAX_HEALTH+))
+        ;; damage `entity-in` for the amt healed
+        (let ((healed-amt (- (entity-health target-entity) og-target-health)))
+          (unless (zerop healed-amt)
+            (decf (entity-health entity-in)
+                  healed-amt)
+            (visual-update-health-entity game-state-in map-pad-in entity-in)
+            (maybe-remove-dead-entity game-state-in entity-in)))
+        (visual-update-health-entity game-state-in map-pad-in target-entity)
+        target-entity)))
+)
 
 (defun spawn-player (map-pad-in game-state-in
                      map-x-in map-y-in)
