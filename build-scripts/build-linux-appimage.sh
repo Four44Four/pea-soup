@@ -6,8 +6,8 @@ APPIMAGE_BASENAME="pea-soup-linux-x86_64.AppImage"
 QL_LOCAL_PROJECT_PATH="/root/quicklisp/local-projects"
 ALACRITTY_VER="v0.16.0"
 
-mkdir -p "$QL_LOCAL_PROJECT_PATH"
-cp -r /workspace/. "$QL_LOCAL_PROJECT_PATH/pea-soup"
+mkdir -p "$QL_LOCAL_PROJECT_PATH/pea-soup"
+cp -r /workspace/* "$QL_LOCAL_PROJECT_PATH/pea-soup"
 
 echo 'Building executable...'
 sbcl --eval '(require :asdf)' \
@@ -24,7 +24,7 @@ if [ -d /workspace/resources ]; then
 fi
 if [ -f /workspace/pea-soup.png ]; then
   cp /workspace/pea-soup.png /tmp/AppDir/;
-else \
+else
   touch /tmp/AppDir/pea-soup.png;
 fi
 # copy the shared libraries' binaries
