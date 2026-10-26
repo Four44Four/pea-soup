@@ -1,0 +1,101 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install all linux packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    sbcl \
+    curl \
+    git \
+    bzip2 \
+    libsdl2-dev \
+    libsdl2-mixer-dev \
+    libncursesw5-dev \
+    file \
+    tar \
+    gzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# install quicklisp
+RUN curl -O https://beta.quicklisp.org/quicklisp.lisp && \
+    sbcl --load quicklisp.lisp \
+         --eval '(quicklisp-quickstart:install :path "/root/quicklisp")' \
+         --eval '(ql-util:without-prompting (ql:add-to-init-file))' \
+         --quit && \
+    rm quicklisp.lisp
+
+# install appimagetool
+RUN curl -Lo /usr/local/bin/appimagetool https://github.com/appimage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage && \
+    chmod +x /usr/local/bin/appimagetool && \
+    cd /tmp && \
+    /usr/local/bin/appimagetool --appimage-extract && \
+    mv squashfs-root /opt/appimagetool && \
+    ln -s /opt/appimagetool/AppRun /usr/local/bin/appimagetool-no-fuse && \
+    rm /usr/local/bin/appimagetool
+
+WORKDIR /workspace
+
+COPY . /workspace
+
+# build the AppImage
+COPY build-scripts/build-linux-appimage.sh /usr/local/bin/build-linux-appimage.sh
+RUN chmod +x /usr/local/bin/build-linux-appimage.sh
+
+CMD ["/usr/local/bin/build-linux-appimage.sh"]
+
+# CMD ["bash", "-c", "set -e && \
+# mkdir -p ~/.quicklisp/local-projects/ && \
+# cp -r /workspace ~/.quicklisp/local-projects/pea-soup && \
+
+# echo 'Building executable...' && \
+# sbcl --eval '(require :asdf)' \
+#      --eval '(ql:quickload :pea-soup)' \
+#      --eval '(sb-ext:save-lisp-and-die \"/tmp/pea-soup\" :toplevel (function pea-soup:main) :executable t :compression t)' && \
+
+# echo 'Creating AppDir...' && \
+# mkdir -p /tmp/AppDir/usr/bin \
+#          /tmp/AppDir/usr/lib \
+#          /tmp/AppDir/resources && \
+# cp /tmp/pea-soup /tmp/AppDir/usr/bin && \
+# if [ -d /workspace/resources ]; then \
+#   cp -r /workspace/resources/* /tmp/AppDir/resources; \
+# fi && \
+# if [ -f /workspace/pea-soup.png ]; then \
+#   cp /workspace/pea-soup.png /tmp/AppDir/; \
+# else \
+#   touch /tmp/AppDir/pea-soup.png; \
+# fi && \
+# cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 /tmp/AppDir/usr/lib/libSDL2.so && \
+# cp /usr/lib/x86_64-linux-gnu/libSDL2_mixer-2.0.so.0 /tmp/AppDir/usr/lib/libSDL2_mixer.so && \
+# cp /lib/x86_64-linux-gnu/libncursesw.so.6 /tmp/AppDir/usr/lib/libncursesw.so && \
+
+# echo 'Downloading Alacritty binary...' && \
+# curl -L https://github.com/alacritty/alacritty/releases/download/v0.13.2/alacritty-v0.13.2-x86_64.tar.gz \
+#   | tar -xz -C /tmp/AppDir/usr/bin/ && \
+
+# echo 'Creating entrypoint files...' && \
+# cat << 'EOF' > /tmp/AppDir/AppRun\n\
+# #!/bin/sh\n\
+# HERE=\"\$(dirname \"\$(readlink -f \"\${0}\")\")\"\n\
+# export LD_LIBRARY_PATH=\"\$HERE/usr/lib:\$LD_LIBRARY_PATH\"\n\
+# TERMINAL_EXEC=\"\${PEA_SOUP_TERMINAL:-\$HERE/usr/bin/alacritty}\"\n\
+# exec \"\$TERMINAL_EXEC\" -e \"\$HERE/usr/bin/pea-soup\"\n\
+# EOF\n\
+
+# chmod +x /tmp/AppDir/AppRun && \
+# cat << 'EOF' > /tmp/AppDir/pea-soup.desktop\n\
+# [Desktop Entry]\n\
+# Name=Pea Soup\n\
+# Exec=pea-soup\n\
+# Icon=pea-soup\n\
+# Type=Application\n\
+# Categories=Game;\n\
+# Comment-Unfortunate lab accident resulted in this...\n\
+# EOF\n\
+
+# echo 'Generating final AppImage...' && \
+# ARCH=x86_64 /usr/local/bin/appimagetool-no-fuse /tmp/AppDir /workspace/dist/pea-soup-linux-x86_64.AppImage && \
+
+# echo 'Finished creating AppImage.' \
+# "]

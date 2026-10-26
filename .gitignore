@@ -1,2 +1,3 @@
 logs/
 src/_main.lisp
+dist/

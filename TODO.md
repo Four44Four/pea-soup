@@ -1,5 +1,20 @@
 # Sprint 1
  - Test for building/packaging test project on targetted platforms (Windows and Linux)
+ - Attack attempt signaling
+    - Turns the target entity to a reddish color for 0.5 seconds
+    - Track if the entity is in a hurting/healing state so that it doesnt lose its effect while moving
+       - When redrawing the entity while moving, check its state to apply the correct color variant
+       - When redrawing the entity to show health, check its state to apply the correct color variant
+       - Start a non-repeating async timer every time an entity gets hurt/healed
+          - The entity's hurting/healing state instantly changes to reflect so
+             - ID of the timer (entity id + "-hurtinghealing") should be so that it can be overriden/reset by another hurting/healing state change
+          - Rerender the entity's char to show that
+          - Timer callback:
+             - Set the state back to neutral state
+             - Rerender the entity's char to show that
+    - Similar for healing
+       - But a greenish color
+    - Store a reddish and greenish version of each entity's color to swap to (in the entity struct)
 # Sprint 2
  - Research into locally runnable decision making AI models
  - Make a basic vegetable AI controlled NPC

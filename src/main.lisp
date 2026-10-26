@@ -1,8 +1,23 @@
 (in-package #:pea-soup)
 
+;; adjust the CFFI shared library search paths to look in `./libs/`
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (let ((runtime-path
+          #+sbcl sb-ext:*runtime-pathname*
+          #+ccl ccl:*heap-image-name*
+          #+ecl (si:argv 0)
+          #-(or sbcl ccl ecl) nil))
+    (when runtime-path
+      (let ((bin-dir-path (uiop:pathname-directory-pathname runtime-path)))
+        (pushnew (merge-pathnames "libs/" bin-dir-path)
+                 cffi:*foreign-library-directories*
+                 :test #'equal)))))
+
 (defparameter +REFRESH_FPS+ 15)
 (defparameter +REFRESH_DELTA_TIME+ (float (/ internal-time-units-per-second +REFRESH_FPS+)
                                      1.0f0))
+
+(defparameter +BASE_DIR+ nil)
 
 (defstruct async-timer
   repeat-p
@@ -12,7 +27,7 @@
 
 (defvar *active-async-timers* (make-hash-table :test #'equal))
 
-(defparameter +LOG_FILE_PATH+ "./logs/test.log")
+(defparameter +LOG_FILE_PATH_REL+ "logs/test.log")
 
 (defmacro print-to-log-file (format-str-in &rest format-args-in)
   `(progn
@@ -46,6 +61,22 @@
 
 (defun clamp (v-in min-in max-in)
   (max min-in (min v-in max-in))
+)
+
+(defun ensure-trailing-slash (str-in)
+  (if (and (> (length str-in) 0)
+           (char= (char str-in (1- (length str-in)))
+                  #\/))
+    str-in
+    (concatenate 'string str-in "/"))
+)
+
+(defun init-base-dir ()
+  (let ((appdir-in (uiop:getenv "APPDIR")))
+    (setq +BASE_DIR+ (if appdir-in
+                       ;; (merge-pathnames "/" appdir-in)
+                       (ensure-trailing-slash appdir-in)
+                       (uiop:getcwd))))
 )
 
 (cffi:defcfun ("setlocale" --setlocale) :string
@@ -90,7 +121,7 @@
 
 ;; AUDIO
 (defconstant +NO_LOOP_AUDIO+ 0)
-(defparameter +BOING_MP3_PATH+ "resources/boing.mp3")
+(defparameter +BOING_MP3_PATH_REL+ "resources/boing.mp3")
 (defparameter +BOING_MP3+ nil)
 
 (defmacro with-loaded-audio (&rest body-in)
@@ -99,7 +130,7 @@
      (sdl2-mixer:open-audio 44100 :s16sys 2 2048)
      (sdl2-mixer:allocate-channels 16)
 
-     (setq +BOING_MP3+ (sdl2-mixer:load-wav +BOING_MP3_PATH+))
+     (setq +BOING_MP3+ (sdl2-mixer:load-wav (merge-pathnames +BOING_MP3_PATH_REL+ +BASE_DIR+)))
 
      ,@body-in
 
@@ -152,7 +183,12 @@
 (deftype direction ()
   `(member :up :down :left :right))
 
+;; ---------------------------------------------------------------------------------------------------------
+
 (defun main ()
+  (init-base-dir)
+  ;; (print-to-log-file "~& .... ~A~%" +BASE_DIR+)
+
   (sdl2:make-this-thread-main
     #'(lambda ()
       (sdl2:with-init (:audio :timer)
@@ -206,6 +242,7 @@
 
                         (multiple-value-bind (cur-win-width cur-win-height)
                             (charms:window-dimensions main-window)
+                          ;; TODO: can impl viewport resizing by just comparing prev and current `viewport-width` and `viewport-height`
                           (let ((viewport-width (1- cur-win-width))
                                 (viewport-height (1- cur-win-height)))
                             ;; reset `moved-p` + `redraw-p`

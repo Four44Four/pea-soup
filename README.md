@@ -1,11 +1,27 @@
 # Purpose
  - Experimental game to integrate with system 1 AI models
 
-# How to run
+# How to run with custom terminal (on Linux)
+ - `PEA_SOUP_TERMINAL="<path-to-terminal-emulator-or-name-of-terminal-emulator>" ./<pea-soup-appimage-name>.AppImage`
+
+# How to run (development)
  - `sbcl --script start.lisp`
 
 # Lint syntax errors
  - `sbcl --script lint.lisp`
+
+# Build
+## Linux
+ - Production:
+    - `./build-scripts/linux.sh`
+ - Test build cmd:
+```bash
+sbcl --eval '(require :asdf)' \
+     --eval '(load "~/quicklisp/setup.lisp")' \
+     --eval '(push (uiop:getcwd) asdf:*central-registry*)' \
+     --eval '(ql:quickload :pea-soup)' \
+     --eval '(sb-ext:save-lisp-and-die "pea-soup" :toplevel (function pea-soup:main) :executable t)'
+```
 
 # External dependencies (package these when distributing binaries later)
  - `sdl2`
@@ -17,20 +33,3 @@
  - `ncurses`
      - On Linux: Use a packaging build Docker container with `libncursesw`
      - On Windows: Use [Project Pluto's `PDCursesMod`](https://www.projectpluto.com/win32a.htm)
-
-# Note to self
- - Maybe we need to plan for making a default dynamic library search paths
-    - NCurses example:
-```bash
-sbcl --eval '(require :asdf)' \
-     --eval '(asdf:load-system :my-ncurses-app)' \
-     --eval '(sb-ext:save-lisp-and-die "my_app" :executable t :toplevel '"'"'my-app:main)'
-```
-```lisp
-;; Let CFFI look for the platform-appropriate dynamic file at runtime
-(cffi:define-foreign-library ncurses
-  (:windows "libncursesw.dll")
-  (:unix (:or "libncursesw.so.6" "libncursesw.so.5")))
-
-(cffi:use-foreign-library ncurses)
-```
