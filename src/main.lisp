@@ -27,7 +27,7 @@
 
 (defvar *active-async-timers* (make-hash-table :test #'equal))
 
-(defparameter +LOG_FILE_PATH_REL+ "logs/test.log")
+(defparameter +LOG_FILE_PATH+ "logs/test.log")
 
 (defmacro print-to-log-file (format-str-in &rest format-args-in)
   `(progn
@@ -96,9 +96,25 @@
 (defconstant +PLAYER_COLOR_PAIR_ID+ 2)
 (defparameter +PLAYER_COLOR_PAIR+ nil)
 
+(defconstant +GREEN1_REDDISH_ID+ 13)
+(defconstant +PLAYER_HURTING_COLOR_PAIR_ID+ 4)
+(defconstant +GREEN1_GREENISH_ID+ 14)
+(defparameter +PLAYER_HURTING_COLOR_PAIR+ nil)
+
+(defconstant +PLAYER_HEALING_COLOR_PAIR_ID+ 5)
+(defparameter +PLAYER_HEALING_COLOR_PAIR+ nil)
+
 (defconstant +GREEN_DARK1_ID+ 12)
 (defconstant +OTHERS_COLOR_PAIR_ID+ 3)
 (defparameter +OTHERS_COLOR_PAIR+ nil)
+
+(defconstant +GREEN_DARK1_REDDISH_ID+ 15)
+(defconstant +OTHERS_HURTING_COLOR_PAIR_ID+ 6)
+(defparameter +OTHERS_HURTING_COLOR_PAIR+ nil)
+
+(defconstant +GREEN_DARK1_GREENISH_ID+ 16)
+(defconstant +OTHERS_HEALING_COLOR_PAIR_ID+ 7)
+(defparameter +OTHERS_HEALING_COLOR_PAIR+ nil)
 
 (defun init-all-colors ()
   (charms/ll:start-color)
@@ -115,6 +131,22 @@
   (charms/ll:init-color +GREEN_DARK1_ID+ 500 800 500)
   (charms/ll:init-pair +OTHERS_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_ID+)
   (setq +OTHERS_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_COLOR_PAIR_ID+))
+
+  (charms/ll:init-color +GREEN1_REDDISH_ID+ 710 835 235)
+  (charms/ll:init-pair +PLAYER_HURTING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_REDDISH_ID+)
+  (setq +PLAYER_HURTING_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_HURTING_COLOR_PAIR_ID+))
+
+  (charms/ll:init-color +GREEN1_GREENISH_ID+ 0 1000 329)
+  (charms/ll:init-pair +PLAYER_HEALING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_GREENISH_ID+)
+  (setq +PLAYER_HEALING_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_HEALING_COLOR_PAIR_ID+))
+
+  (charms/ll:init-color +GREEN_DARK1_REDDISH_ID+ 729 804 500)
+  (charms/ll:init-pair +OTHERS_HURTING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_REDDISH_ID+)
+  (setq +OTHERS_HURTING_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_HURTING_COLOR_PAIR_ID+))
+
+  (charms/ll:init-color +GREEN_DARK1_GREENISH_ID+ 263 926 384)
+  (charms/ll:init-pair +OTHERS_HEALING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_GREENISH_ID+)
+  (setq +OTHERS_HEALING_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_HEALING_COLOR_PAIR_ID+))
 )
 
 ;; ---------------------------------------------------------------------------------------------------------
@@ -155,12 +187,19 @@
 (defparameter +ENTITY_MEDIUM_DMG_CHAR_CODE+ (char-code #\O))
 (defparameter +ENTITY_HEAVY_DMG_CHAR_CODE+ (char-code #\@))
 (defparameter +ENTITY_REGEN_AMT_PER_TICK+ 2)
+(defparameter +ENTITIES_STATE_UPDATE_DURA_TIME+ (* 2 internal-time-units-per-second))
+
+(deftype entity-state ()
+  `(member :neutral :hurting :healing))
 
 (defstruct entity
   id
   map-x
   map-y
   color-pair ;; can be `nil`
+  hurting-color-pair
+  healing-color-pair
+  (state :neutral :type entity-state)
   (health +ENTITY_MAX_HEALTH+) ;; 0 to `+ENTITY_MAX_HEALTH+`
   (prev-map-x -1)
   (prev-map-y -1)
@@ -418,6 +457,16 @@
   (mark-pad-dirty game-state-in map-pad-in map-x map-y)
 )
 
+(defun get-active-color-pair-entity (entity-in)
+  (ecase (entity-state entity-in)
+    (:neutral
+      (entity-color-pair entity-in))
+    (:hurting 
+      (entity-hurting-color-pair entity-in))
+    (:healing 
+      (entity-healing-color-pair entity-in)))
+)
+
 ;; should be called whenever `entity-in` moves on `map-pad-in`
 (defun visual-move-entity (game-state-in map-pad-in entity-in)
   ;; erase `entity-in` at prev map cells
@@ -441,19 +490,21 @@
                      cur-map-y cur-map-x)))
 
     ;; draw `entity-in` at new char cell
-    (let ((cur-entity-color-pair (entity-color-pair entity-in)))
-      (when cur-entity-color-pair
-        (charms/ll:wattron map-pad-in cur-entity-color-pair))
-      (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
-      (when cur-entity-color-pair
-        (charms/ll:wattroff map-pad-in cur-entity-color-pair))
-      (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y)));)
+    (visual-update-entity game-state-in map-pad-in entity-in)
+    ;; (let ((cur-entity-color-pair (get-active-color-pair-entity entity-in)))
+    ;;   (when cur-entity-color-pair
+    ;;     (charms/ll:wattron map-pad-in cur-entity-color-pair))
+    ;;   (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
+    ;;   (when cur-entity-color-pair
+    ;;     (charms/ll:wattroff map-pad-in cur-entity-color-pair))
+    ;;   (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y))
+    )
 )
 
-(defun visual-update-health-entity (game-state-in map-pad-in entity-in)
+(defun visual-update-entity (game-state-in map-pad-in entity-in)
   (let ((cur-map-x (entity-map-x entity-in))
         (cur-map-y (entity-map-y entity-in))
-        (cur-color-pair (entity-color-pair entity-in)))
+        (cur-color-pair (get-active-color-pair-entity entity-in)))
     (if (zerop (entity-health entity-in))
       ;; dead: clear the spot
       (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (char-code #\Space))
@@ -543,12 +594,15 @@
 ;; returns the created entity instance
 ;;   modifies `game-state-in` as a side effect
 (defun spawn-entity (map-pad-in game-state-in
-                     map-x-in map-y-in color-pair-in)
+                     map-x-in map-y-in
+                     color-pair-in hurting-color-pair-in healing-color-pair-in)
   (incf (game-state-cur-entity-id game-state-in))
   (let* ((cur-entity-id (game-state-cur-entity-id game-state-in))
          (ret-entity (make-entity :id cur-entity-id
                                   :map-x map-x-in :map-y map-y-in
-                                  :color-pair color-pair-in)))
+                                  :color-pair color-pair-in
+                                  :hurting-color-pair hurting-color-pair-in
+                                  :healing-color-pair healing-color-pair-in)))
     (setf (gethash cur-entity-id
                    (game-state-entities game-state-in))
           ret-entity)
@@ -611,6 +665,22 @@
         (aref map-entity-data src-map-y (1+ src-map-x)))))
 )
 
+(defun update-state-entity (game-state-in map-pad-in entity-in entity-state-in)
+  (declare (type entity-state entity-state-in))
+  ;; if `entity-in` receives another entity-state update:
+  ;;   overwrite the current reset-state timer task (we don't want it to reset it >1 times)
+  (start-async-timer (concatenate 'string (princ-to-string (entity-id entity-in))
+                                          "-reset-state")
+                     :delay-time +ENTITIES_STATE_UPDATE_DURA_TIME+
+                     :callback-fn #'(lambda ()
+                                    (setf (entity-state entity-in)
+                                          :neutral)
+                                    (visual-update-entity game-state-in map-pad-in entity-in)))
+  (setf (entity-state entity-in)
+        entity-state-in)
+  (visual-update-entity game-state-in map-pad-in entity-in)
+)
+
 ;; TODO: maybe add  "shield" that can be activated to reduce dmg in the direction of previous movement 
 
 ;; deals `+ENTITY_NORMAL_ATK_DMG+` to whatever entity is in `direction-in` relative to `entity-in`
@@ -630,7 +700,7 @@
         (when (< (entity-health target-entity) 0)
           (setf (entity-health target-entity)
                 0))
-        (visual-update-health-entity game-state-in map-pad-in target-entity)
+        (update-state-entity game-state-in map-pad-in target-entity :hurting)
         (maybe-remove-dead-entity game-state-in target-entity)
         target-entity)))
 )
@@ -659,9 +729,9 @@
           (unless (zerop healed-amt)
             (decf (entity-health entity-in)
                   healed-amt)
-            (visual-update-health-entity game-state-in map-pad-in entity-in)
+            (visual-update-entity game-state-in map-pad-in entity-in)
             (maybe-remove-dead-entity game-state-in entity-in)))
-        (visual-update-health-entity game-state-in map-pad-in target-entity)
+        (update-state-entity game-state-in map-pad-in target-entity :healing)
         target-entity)))
 )
 
@@ -671,7 +741,7 @@
         (spawn-entity map-pad-in game-state-in
                       map-x-in
                       map-y-in
-                      +PLAYER_COLOR_PAIR+))
+                      +PLAYER_COLOR_PAIR+ +PLAYER_HURTING_COLOR_PAIR+ +PLAYER_HEALING_COLOR_PAIR+))
 )
 
 (defun clear-spawn-area (map-pad-in game-state-in
@@ -689,7 +759,7 @@
       (spawn-entity map-pad-in game-state-in
                     spawn-map-x
                     spawn-map-y
-                    +OTHERS_COLOR_PAIR+)))
+                    +OTHERS_COLOR_PAIR+ +OTHERS_HURTING_COLOR_PAIR+ +OTHERS_HEALING_COLOR_PAIR+)))
 )
 
 ;; returns valid map-x and map-y
@@ -771,5 +841,5 @@
       (when (> (entity-health cur-entity) +ENTITY_MAX_HEALTH+)
         (setf (entity-health cur-entity)
               +ENTITY_MAX_HEALTH+)))
-    (visual-update-health-entity game-state-in map-pad-in cur-entity))
+    (visual-update-entity game-state-in map-pad-in cur-entity))
 )
