@@ -19,14 +19,6 @@
 
 (defparameter +BASE_DIR+ nil)
 
-(defstruct async-timer
-  repeat-p
-  start-time
-  delay-time
-  callback-fn)
-
-(defvar *active-async-timers* (make-hash-table :test #'equal))
-
 (defparameter +LOG_FILE_PATH+ "logs/test.log")
 
 (defmacro print-to-log-file (format-str-in &rest format-args-in)
@@ -540,35 +532,6 @@
           (setf (sbit ret-arr y x)
                 1))))
     ret-arr)
-)
-
-;; `name` is the unique identifying name this timer task is assigned
-;;        if second async timer task is started with this same name, it immediately cancels/replaces the original async timer task
-;; `delay-time` should be in the same units as `internal-time-units-per-second`
-;; `callback-fn` is a function with no args
-;; `repeat-p` should `callback-fn` repeat or not every `delay-time`
-(defun start-async-timer (name-in &key delay-time callback-fn repeat-p)
-  (setf (gethash name-in *active-async-timers*)
-        (make-async-timer :start-time (get-internal-real-time)
-                          :delay-time delay-time
-                          :callback-fn callback-fn
-                          :repeat-p repeat-p))
-)
-
-;; destructive to `*active-async-timers*`
-(defun run-or-update-async-timers ()
-  (do-hash-table (cur-name cur-async-timer *active-async-timers*)
-    (let ((cur-time (get-internal-real-time)))
-      ;; is `cur-async-timer` expired ?
-      (when (>= (- cur-time (async-timer-start-time cur-async-timer))
-                (async-timer-delay-time cur-async-timer))
-        (funcall (async-timer-callback-fn cur-async-timer))
-        (if (async-timer-repeat-p cur-async-timer)
-          ;; update start time + don't delete timer
-          (setf (async-timer-start-time cur-async-timer)
-                cur-time)
-          ;; delete timer
-          (remhash cur-name *active-async-timers*)))))
 )
 
 ;; --------------------------------------------------------------------------------------------------------------------
