@@ -145,8 +145,15 @@
 
 ;; AUDIO
 (defconstant +NO_LOOP_AUDIO+ 0)
+
 (defparameter +BOING_MP3_PATH_REL+ "resources/boing.mp3")
 (defparameter +BOING_MP3+ nil)
+
+(defparameter +ATTACK_MP3_PATH_REL+ "resources/glass_hit.mp3")
+(defparameter +ATTACK_MP3+ nil)
+
+(defparameter +HEAL_MP3_PATH_REL+ "resources/magic_spell.mp3")
+(defparameter +HEAL_MP3+ nil)
 
 (defmacro with-loaded-audio (&rest body-in)
   `(progn
@@ -155,10 +162,14 @@
      (sdl2-mixer:allocate-channels 16)
 
      (setq +BOING_MP3+ (sdl2-mixer:load-wav (merge-pathnames +BOING_MP3_PATH_REL+ +BASE_DIR+)))
+     (setq +ATTACK_MP3+ (sdl2-mixer:load-wav (merge-pathnames +ATTACK_MP3_PATH_REL+ +BASE_DIR+)))
+     (setq +HEAL_MP3+ (sdl2-mixer:load-wav (merge-pathnames +HEAL_MP3_PATH_REL+ +BASE_DIR+)))
 
      ,@body-in
 
      (sdl2-mixer:free-chunk +BOING_MP3+)
+     (sdl2-mixer:free-chunk +ATTACK_MP3+)
+     (sdl2-mixer:free-chunk +HEAL_MP3+)
      (sdl2-mixer:close-audio)
      (sdl2-mixer:quit))
 )
@@ -663,6 +674,7 @@
         (when (< (entity-health target-entity) 0)
           (setf (entity-health target-entity)
                 0))
+        (sdl2-mixer:play-channel -1 +ATTACK_MP3+ +NO_LOOP_AUDIO+)
         (update-state-entity game-state-in map-pad-in target-entity :hurting)
         (maybe-remove-dead-entity game-state-in target-entity)
         target-entity)))
@@ -694,6 +706,7 @@
                   healed-amt)
             (visual-update-entity game-state-in map-pad-in entity-in)
             (maybe-remove-dead-entity game-state-in entity-in)))
+        (sdl2-mixer:play-channel -1 +HEAL_MP3+ +NO_LOOP_AUDIO+)
         (update-state-entity game-state-in map-pad-in target-entity :healing)
         target-entity)))
 )
