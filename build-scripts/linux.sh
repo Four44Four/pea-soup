@@ -10,7 +10,7 @@ docker buildx build -f Dockerfile.linux -t "$IMG_NAME" ./
 docker run --name "$CONTAINER_NAME" "$IMG_NAME"
 
 echo 'Extracting AppImage to CWD...'
-mkdir ./dist/
+mkdir -p ./dist/
 docker cp "$CONTAINER_NAME:/workspace/dist/$APPIMAGE_BASENAME" ./dist/
 
 sudo chown -R $SUDO_USER:$SUDO_USER ./dist/

@@ -1,18 +1,5 @@
 (in-package #:pea-soup)
 
-;; adjust the CFFI shared library search paths to look in `./libs/`
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (let ((runtime-path
-          #+sbcl sb-ext:*runtime-pathname*
-          #+ccl ccl:*heap-image-name*
-          #+ecl (si:argv 0)
-          #-(or sbcl ccl ecl) nil))
-    (when runtime-path
-      (let ((bin-dir-path (uiop:pathname-directory-pathname runtime-path)))
-        (pushnew (merge-pathnames "libs/" bin-dir-path)
-                 cffi:*foreign-library-directories*
-                 :test #'equal)))))
-
 (defparameter +REFRESH_FPS+ 15)
 (defparameter +REFRESH_DELTA_TIME+ (float (/ internal-time-units-per-second +REFRESH_FPS+)
                                      1.0f0))

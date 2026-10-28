@@ -11,6 +11,7 @@
  - `sbcl --script lint.lisp`
 
 # Build
+ - Artifacts will go in `./dist/`
 ## Linux
  - Production:
     - `./build-scripts/linux.sh`
@@ -22,14 +23,5 @@ sbcl --eval '(require :asdf)' \
      --eval '(ql:quickload :pea-soup)' \
      --eval '(sb-ext:save-lisp-and-die "pea-soup" :toplevel (function pea-soup:main) :executable t)'
 ```
-
-# External dependencies (package these when distributing binaries later)
- - `sdl2`
-    - On Linux: Use a packaging build Docker container with `libsdl2`
-    - On Windows: Use a specific binary from https://github.com/libsdl-org/SDL/releases
- - `sdl2_mixer`
-    - On Linux: Use a packaging build Docker container with `libSDL2_mixer`
-    - On Windows: Use a specific binary from https://github.com/libsdl-org/SDL_mixer/releases
- - `ncurses`
-     - On Linux: Use a packaging build Docker container with `libncursesw`
-     - On Windows: Use [Project Pluto's `PDCursesMod`](https://www.projectpluto.com/win32a.htm)
+## Windows
+ - `./build-scripts/windows.sh`

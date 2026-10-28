@@ -1,0 +1,113 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install all linux packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    sbcl \
+    libzstd-dev \
+    wine64 \
+    mingw-w64 \
+    make \
+    curl \
+    git \
+    zip \
+    unzip \
+    bzip2 \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV WINEPREFIX=/root/.wine
+
+# disable display drivers bc we dont have a display in Docker duhh
+RUN winecfg /v win10 && \
+    wine reg add "HKCU\Software\Wine\Drivers" /v "Graphics" /t REG_SZ /d "null" /f && \
+    wineboot --init && \
+    mkdir -p "$WINEPREFIX/drive_c/Program Files"
+
+ENV WINEDEBUG=-all
+ENV WINEARCH=win64
+
+# install sbcl
+#   use precompiled sbcl as a bootstrap compiler
+#   to compile specific sbcl version from source with zstd compression
+ENV SBCL_VERSION=2.6.7
+ENV SBCL_ARCH=x86-64 
+ENV SBCL_OS=win32
+RUN mkdir -p /tmp/sbcl-bootstrap && \
+    curl -Lo /tmp/sbcl-bootstrap/bootstrap.msi "https://sourceforge.net/projects/sbcl/files/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-x86-64-windows-binary.msi/download" && \
+    wine start /wait msiexec /i /tmp/sbcl-bootstrap/bootstrap.msi /qn && \
+    rm -rf /tmp/sbcl-bootstrap
+
+ENV ZSTD_VERSION=1.5.7
+RUN mkdir -p /opt/zstd-win && \
+    curl -Lo /tmp/zstd.zip https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-v${ZSTD_VERSION}-win64.zip && \
+    unzip /tmp/zstd.zip -d /opt/zstd-win && \
+    cp /opt/zstd-win/zstd-v${ZSTD_VERSION}-win64/include/*.h /usr/x86_64-w64-mingw32/include/ && \
+    cp /opt/zstd-win/zstd-v${ZSTD_VERSION}-win64/static/libzstd_static.lib /usr/x86_64-w64-mingw32/lib/libzstd.a
+
+RUN mkdir -p /tmp/sbcl-build && \
+    curl -Lo /tmp/sbcl-src.tar.bz2 "https://sourceforge.net/projects/sbcl/files/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-source.tar.bz2/download" && \
+    tar -xjf /tmp/sbcl-src.tar.bz2 -C /tmp/sbcl-build && \
+    cd /tmp/sbcl-build/sbcl-${SBCL_VERSION} && \
+    ln -sf "$WINEPREFIX/drive_c/Program Files/Steel Bank Common Lisp" /tmp/sbcl_host && \
+    echo '(:win32 :x86-64 :little-endian :gencgc :64-BIT :sb-core-compression)' > local-target-features.lisp-expr && \
+        mkdir /tmp/mock-bin && \
+        echo '#!/bin/sh' > /tmp/mock-bin/uname && \
+        echo 'echo "MSYS_NT-mock"' >> /tmp/mock-bin/uname && \
+        chmod +x /tmp/mock-bin/uname && \
+        export PATH="/tmp/mock-bin:$PATH" && \
+        sed -i 's|\$GNUMAKE -C tools-for-build determine-endianness.*|echo " :little-endian" >> \$ltf|g' make-config.sh && \
+        sed -i 's|tools-for-build/determine-endianness >>.*|true|g' make-config.sh && \
+        sed -i 's|sh tools-for-build/grovel-features.sh >>.*|true|g' make-config.sh && \
+        ./make-config.sh --with-sb-core-compression && \
+    export WINEPATH="/usr/x86_64-w64-mingw32/lib;/usr/lib/gcc/x86_64-w64-mingw32/*" && \
+    sed -i 's|tools-for-build/grovel-headers >|wine tools-for-build/grovel-headers.exe >|g' make-target-1.sh && \
+    echo "CC=x86_64-w64-mingw32-gcc" >> src/runtime/Config.x86-64-win32 && \
+    echo "CFLAGS += -I/opt/zstd-win/zstd-v${ZSTD_VERSION}-win64/include -DZSTD_STATIC_LINKING_ONLY" >> src/runtime/Config.x86-64-win32 && \
+    echo "LINKFLAGS += -static" >> src/runtime/Config.x86-64-win32 && \
+    echo "LIBS += -lzstd -lpthread -lws2_32 -ladvapi32 -lshlwapi" >> src/runtime/Config.x86-64-win32 && \
+    sed -i 's|GNUMAKE:-make}|GNUMAKE:-make} CC=x86_64-w64-mingw32-gcc|g' make-target-1.sh && \
+    sed -i 's|SBCL_RUNTIME:-src/runtime/sbcl}|SBCL_RUNTIME:-src/runtime/sbcl.exe}|g' make-target-2.sh && \
+    sed -i 's|"\$sbcl_runtime"|wine "\$sbcl_runtime"|g' make-target-2.sh && \
+    sed -i 's|\./src/runtime/sbcl|wine src/runtime/sbcl.exe|g' make-target-2.sh && \
+    sed -i 's|OS_LIBS += -lzstd|OS_LIBS += -lzstd -static|g' src/runtime/GNUmakefile && \
+    export CC="x86_64-w64-mingw32-gcc" && \
+      ./make-host-1.sh --xc-host="wine /tmp/sbcl_host/sbcl.exe --no-userinit --no-sysinit" && \
+      ./make-target-1.sh && \
+      ./make-host-2.sh && \
+      ./make-target-2.sh && \
+    cp src/runtime/sbcl.exe "$WINEPREFIX/drive_c/Program Files/Steel Bank Common Lisp/sbcl.exe" && \
+    cp output/sbcl.core "$WINEPREFIX/drive_c/Program Files/Steel Bank Common Lisp/sbcl.core" && \
+    rm -rf /tmp/sbcl-build /tmp/sbcl-src.tar.bz2 /tmp/mock-bin
+
+# install quicklisp
+RUN curl -O https://beta.quicklisp.org/quicklisp.lisp && \
+    wine "C:\\Program Files\\Steel Bank Common Lisp\\sbcl.exe" \
+         --load quicklisp.lisp \
+         --eval '(quicklisp-quickstart:install :path "C:\\quicklisp\\")' \
+         --quit && \
+    rm quicklisp.lisp
+
+# install windows mingw (jesus christ this code is horrible)
+#   bc cffi-grovel needs a windows native C compiler
+ENV GCC_WIN_VERSION=16.1.0
+ENV GCC_WIN_UCRT_VERSION=14.0.0
+ENV GCC_WIN_RELEASE=4
+RUN curl -Lo /tmp/winlibs.zip "https://github.com/brechtsanders/winlibs_mingw/releases/download/${GCC_WIN_VERSION}posix-${GCC_WIN_UCRT_VERSION}-ucrt-r${GCC_WIN_RELEASE}/winlibs-x86_64-posix-seh-gcc-${GCC_WIN_VERSION}-mingw-w64ucrt-${GCC_WIN_UCRT_VERSION}-r${GCC_WIN_RELEASE}.zip" && \
+    unzip -q /tmp/winlibs.zip -d /opt/mingw_win
+
+# install rcedit (for exe icon changing)
+ENV RCEDIT_VERSION=2.0.0
+RUN curl -Lo /opt/rcedit.exe "https://github.com/electron/rcedit/releases/download/v${RCEDIT_VERSION}/rcedit-x64.exe"
+
+WORKDIR /workspace
+
+COPY . /workspace
+
+# build the ZIP file
+COPY build-scripts/build-windows-zip.sh /usr/local/bin/build-windows-zip.sh
+RUN chmod +x /usr/local/bin/build-windows-zip.sh
+
+CMD ["/usr/local/bin/build-windows-zip.sh"]

@@ -26,6 +26,7 @@ RUN mkdir -p /tmp/sbcl-build && \
     curl -Lo /tmp/sbcl-src.tar.bz2 https://sourceforge.net/projects/sbcl/files/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-source.tar.bz2/download && \
     tar -xjf /tmp/sbcl-src.tar.bz2 -C /tmp/sbcl-build && \
     cd /tmp/sbcl-build/sbcl-${SBCL_VERSION} && \
+    export LINKFLAGS="-Wl,-Bstatic -lzstd -Wl,-Bdynamic" && \
     sh make.sh \
       --xc-host="sbcl --no-userinit --no-sysinit" \
       --with-sb-core-compression && \

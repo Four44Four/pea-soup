@@ -22,8 +22,8 @@ cp /tmp/pea-soup /tmp/AppDir/usr/bin
 if [ -d /workspace/resources ]; then
   cp -r /workspace/resources/* /tmp/AppDir/resources;
 fi
-if [ -f /workspace/pea-soup.png ]; then
-  cp /workspace/pea-soup.png /tmp/AppDir/;
+if [ -f /workspace/resources/pea-soup.png ]; then
+  cp /workspace/resources/pea-soup.png /tmp/AppDir/;
 else
   touch /tmp/AppDir/pea-soup.png;
 fi
@@ -49,6 +49,7 @@ mkdir -p /tmp/alacritty-src
 cd /tmp/alacritty-src
 git clone --depth 1 --branch "$ALACRITTY_VER" https://github.com/alacritty/alacritty.git .
 cargo build --release
+strip --strip-unneeded target/release/alacritty
 cp target/release/alacritty /tmp/AppDir/usr/bin/
 
 
@@ -56,7 +57,7 @@ echo 'Creating entrypoint files...'
 cat << 'EOF' > /tmp/AppDir/AppRun
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
-export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/libs:$LD_LIBRARY_PATH"
 TERMINAL_EXEC="${PEA_SOUP_TERMINAL:-$HERE/usr/bin/alacritty}"
 exec "$TERMINAL_EXEC" -e "$HERE/usr/bin/pea-soup"
 EOF
