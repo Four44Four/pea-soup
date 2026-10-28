@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # install all linux packages
 RUN apt-get update && apt-get install -y \
     build-essential \
+    sbcl \
     curl \
     git \
     bzip2 \
@@ -20,16 +21,16 @@ RUN apt-get update && apt-get install -y \
 # install sbcl
 #   use the prebuilt binary as a bootstrap compiler
 #   to build it again with zstd compression enabled
-ENV SBCL_VERSION=2.6.0
+ENV SBCL_VERSION=2.6.7
 RUN mkdir -p /tmp/sbcl-build && \
-    curl -Lo /tmp/sbcl-bin.tar.bz2 https://sourceforge.net/projects/sbcl/files/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-x86-64-linux-binary.tar.bz2/download && \
-    tar -xjf /tmp/sbcl-bin.tar.bz2 -C /tmp/sbcl-build && \
     curl -Lo /tmp/sbcl-src.tar.bz2 https://sourceforge.net/projects/sbcl/files/sbcl/${SBCL_VERSION}/sbcl-${SBCL_VERSION}-source.tar.bz2/download && \
     tar -xjf /tmp/sbcl-src.tar.bz2 -C /tmp/sbcl-build && \
     cd /tmp/sbcl-build/sbcl-${SBCL_VERSION} && \
-    sh make.sh --xc-host="/tmp/sbcl-build/sbcl-${SBCL_VERSION}-x86-64-linux/src/runtime/sbcl --core /tmp/sbcl-build/sbcl-${SBCL_VERSION}-x86-64-linux/output/sbcl.core --disable-debugger --no-userinit --no-sysinit" --with-sb-core-compression && \
+    sh make.sh \
+      --xc-host="sbcl --no-userinit --no-sysinit" \
+      --with-sb-core-compression && \
     sh install.sh && \
-    rm -rf /tmp/sbcl-build /tmp/sbcl-*.tar.bz2
+    rm -rf /tmp/sbcl-build /tmp/sbcl-src.tar.bz2
 
 # install quicklisp
 RUN curl -O https://beta.quicklisp.org/quicklisp.lisp && \
