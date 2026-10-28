@@ -1,11 +1,17 @@
 (in-package #:pea-soup)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter +PDC_ALT_LOW_I_CHAR+ (code-char 425))
+  (defparameter +PDC_ALT_LOW_J_CHAR+ (code-char 426))
+  (defparameter +PDC_ALT_LOW_K_CHAR+ (code-char 427))
+  (defparameter +PDC_ALT_LOW_L_CHAR+ (code-char 428)))
+
+
 (defparameter +REFRESH_FPS+ 15)
 (defparameter +REFRESH_DELTA_TIME+ (float (/ internal-time-units-per-second +REFRESH_FPS+)
                                      1.0f0))
 
 (defparameter +BASE_DIR+ nil)
-
 (defparameter +LOG_FILE_PATH+ "logs/test.log")
 
 (defmacro print-to-log-file (format-str-in &rest format-args-in)
@@ -133,9 +139,6 @@
 ;; AUDIO
 (defconstant +NO_LOOP_AUDIO+ 0)
 
-(defparameter +BOING_MP3_PATH_REL+ "resources/boing.mp3")
-(defparameter +BOING_MP3+ nil)
-
 (defparameter +ATTACK_MP3_PATH_REL+ "resources/glass_hit.mp3")
 (defparameter +ATTACK_MP3+ nil)
 
@@ -148,13 +151,11 @@
      (sdl2-mixer:open-audio 44100 :s16sys 2 2048)
      (sdl2-mixer:allocate-channels 16)
 
-     (setq +BOING_MP3+ (sdl2-mixer:load-wav (merge-pathnames +BOING_MP3_PATH_REL+ +BASE_DIR+)))
      (setq +ATTACK_MP3+ (sdl2-mixer:load-wav (merge-pathnames +ATTACK_MP3_PATH_REL+ +BASE_DIR+)))
      (setq +HEAL_MP3+ (sdl2-mixer:load-wav (merge-pathnames +HEAL_MP3_PATH_REL+ +BASE_DIR+)))
 
      ,@body-in
 
-     (sdl2-mixer:free-chunk +BOING_MP3+)
      (sdl2-mixer:free-chunk +ATTACK_MP3+)
      (sdl2-mixer:free-chunk +HEAL_MP3+)
      (sdl2-mixer:close-audio)
@@ -226,6 +227,8 @@
           (charms:with-curses ()
             (charms/ll:curs-set 0)
             (charms:disable-echoing)
+            #+windows
+              (charms:enable-extra-keys charms:*standard-window*)
             (charms:enable-raw-input :interpret-control-characters t)
             (charms:enable-non-blocking-mode charms:*standard-window*)
 
@@ -233,7 +236,7 @@
 
             (handler-case
               (let* ((main-window charms:*standard-window*)
-                     ;; (main-window-ptr (charms::window-pointer main-window))
+                     (main-window-ptr (charms::window-pointer main-window))
                      (get-next-char-fn #'(lambda ()
                                          (charms:get-char main-window :ignore-error t)))
                      (last-frame-time (get-internal-real-time))
@@ -286,6 +289,10 @@
                                                         (1- (- +MAP_WIDTH+ viewport-width))
                                                         (1- (- +MAP_HEIGHT+ viewport-height))
                                                         map-pad))
+                            ;; (let ((c (charms/ll:wgetch main-window-ptr)))
+                            ;;   (unless (= -1 c)
+                            ;;     (print-to-log-file "~& >> ~A~%" c)))
+
                             ;; do main rendering
                             (let ((cam-map-x (game-state-cur-x game-state-instance))
                                   (cam-map-y (game-state-cur-y game-state-instance)))
@@ -310,111 +317,165 @@
                                                 (sb-debug:backtrace :stream strm-out))))))))))
 )
 
+(deftype action-type ()
+  `(member :move-cam-up :move-cam-down :move-cam-left :move-cam-right
+           :move-player-up :move-player-down :move-player-left :move-player-right
+           :attack-up :attack-down :attack-left :attack-right
+           :heal-up :heal-down :heal-left :heal-right
+           :exit))
+
+;; returns an action-type or `nil`
+(declaim (ftype (function ((or null character) (function () (or null character)))
+                  (or null action-type))
+                interpret-chars-input))
+(defun interpret-chars-input (char-in get-next-char-fn)
+  ;; (print-to-log-file "~& >> ~A~%" (char-code char-in))
+  (case char-in
+    (#\w
+      :move-cam-up)
+    (#\s
+      :move-cam-down)
+    (#\a
+      :move-cam-left)
+    (#\d
+      :move-cam-right)
+    (#\i
+      :move-player-up)
+    (#\k
+      :move-player-down)
+    (#\j
+      :move-player-left)
+    (#\l
+      :move-player-right)
+    (#\I
+      :attack-up)
+    (#\K
+      :attack-down)
+    (#\J
+      :attack-left)
+    (#\L
+      :attack-right)
+    (#.+PDC_ALT_LOW_I_CHAR+
+      :heal-up)
+    (#.+PDC_ALT_LOW_K_CHAR+
+      :heal-down)
+    (#.+PDC_ALT_LOW_J_CHAR+
+      :heal-left)
+    (#.+PDC_ALT_LOW_L_CHAR+
+      :heal-right)
+    (#\Esc
+      (let ((next-char-in (funcall get-next-char-fn)))
+        (case next-char-in
+          (#\i
+            :heal-up)
+          (#\k
+            :heal-down)
+          (#\j
+            :heal-left)
+          (#\l
+            :heal-right)
+          (t
+            ;; TODO: remove this one arrows are implemented
+            ;; check if non-arrow key: exit
+            (unless (and next-char-in (char= #\[ next-char-in))
+              :exit))))))
+)
+
 ;; `get-next-char-fn` is a zero arg function that returns the next character in the input stream or `nil` if it has ended
 (defun handle-input-chars (first-input-char-in get-next-char-fn game-state-in
                            max-cam-map-x max-cam-map-y
                            map-pad-in)
-  (case first-input-char-in
-    (#\Esc
-      (let ((next-input-char-in (funcall get-next-char-fn)))
-        (case next-input-char-in
-          ;; check ALT keybind combinations
-          (#\i
-            (let ((player-entity (game-state-player-entity game-state-in)))
-              (when player-entity
-                (heal-entity game-state-in map-pad-in player-entity
-                             :up))))
-          (#\j
-            (let ((player-entity (game-state-player-entity game-state-in)))
-              (when player-entity
-                (heal-entity game-state-in map-pad-in player-entity
-                             :left))))
-          (#\k
-            (let ((player-entity (game-state-player-entity game-state-in)))
-              (when player-entity
-                (heal-entity game-state-in map-pad-in player-entity
-                             :down))))
-          (#\l
-            (let ((player-entity (game-state-player-entity game-state-in)))
-              (when player-entity
-                (heal-entity game-state-in map-pad-in player-entity
-                             :right))))
-          (t
-            ;; TODO: remove this one arrows are implemented
-            ;; check if non-arrow key: exit
-            (unless (and next-input-char-in (char= #\[ next-input-char-in))
-              (sdl2:push-event :quit))))))
-    (#\Space
-      (sdl2-mixer:play-channel -1 +BOING_MP3+ +NO_LOOP_AUDIO+))
-    (#\w
+  (case (interpret-chars-input first-input-char-in get-next-char-fn)
+    (:exit
+      (sdl2:push-event :quit))
+    (:move-cam-up
       (setf (game-state-moved-p game-state-in)
             t)
       (setf (game-state-cur-y game-state-in)
             (clamp (1- (game-state-cur-y game-state-in))
                    0
                    max-cam-map-y)))
-    (#\a
-      (setf (game-state-moved-p game-state-in)
-            t)
-      (setf (game-state-cur-x game-state-in)
-            (clamp (1- (game-state-cur-x game-state-in))
-                   0
-                   max-cam-map-x)))
-    (#\s
+    (:move-cam-down
       (setf (game-state-moved-p game-state-in)
             t)
       (setf (game-state-cur-y game-state-in)
             (clamp (1+ (game-state-cur-y game-state-in))
                    0
                    max-cam-map-y)))
-    (#\d
+    (:move-cam-left
+      (setf (game-state-moved-p game-state-in)
+            t)
+      (setf (game-state-cur-x game-state-in)
+            (clamp (1- (game-state-cur-x game-state-in))
+                   0
+                   max-cam-map-x)))
+    (:move-cam-right
       (setf (game-state-moved-p game-state-in)
             t)
       (setf (game-state-cur-x game-state-in)
             (clamp (1+ (game-state-cur-x game-state-in))
                    0
                    max-cam-map-x)))
-    (#\i
+    (:move-player-up
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (move-entity game-state-in map-pad-in player-entity
                        (entity-map-x player-entity) (1- (entity-map-y player-entity))))))
-    (#\j
-      (let ((player-entity (game-state-player-entity game-state-in)))
-        (when player-entity
-          (move-entity game-state-in map-pad-in player-entity
-                       (1- (entity-map-x player-entity))  (entity-map-y player-entity)))))
-    (#\k
+    (:move-player-down
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (move-entity game-state-in map-pad-in player-entity
                        (entity-map-x player-entity) (1+ (entity-map-y player-entity))))))
-    (#\l
+    (:move-player-left
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (move-entity game-state-in map-pad-in player-entity
+                       (1- (entity-map-x player-entity))  (entity-map-y player-entity)))))
+    (:move-player-right
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (move-entity game-state-in map-pad-in player-entity
                        (1+ (entity-map-x player-entity)) (entity-map-y player-entity)))))
-    (#\I
+    (:attack-up
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (attack-entity game-state-in map-pad-in player-entity
                          :up))))
-    (#\J
-      (let ((player-entity (game-state-player-entity game-state-in)))
-        (when player-entity
-          (attack-entity game-state-in map-pad-in player-entity
-                         :left))))
-    (#\K
+    (:attack-down
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (attack-entity game-state-in map-pad-in player-entity
                          :down))))
-    (#\L
+    (:attack-left
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (attack-entity game-state-in map-pad-in player-entity
+                         :left))))
+    (:attack-right
       (let ((player-entity (game-state-player-entity game-state-in)))
         (when player-entity
           (attack-entity game-state-in map-pad-in player-entity
                          :right))))
-    (t nil))
+    (:heal-up
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (heal-entity game-state-in map-pad-in player-entity
+                       :up))))
+    (:heal-down
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (heal-entity game-state-in map-pad-in player-entity
+                       :down))))
+    (:heal-left
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (heal-entity game-state-in map-pad-in player-entity
+                       :left))))
+    (:heal-right
+      (let ((player-entity (game-state-player-entity game-state-in)))
+        (when player-entity
+          (heal-entity game-state-in map-pad-in player-entity
+                       :right)))))
 )
 
 (defun get-display-char-code-entity (entity-in)
