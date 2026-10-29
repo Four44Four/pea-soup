@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     sbcl \
     libzstd-dev \
+    zstd \
     wine64 \
     mingw-w64 \
     make \
@@ -101,6 +102,30 @@ RUN curl -Lo /tmp/winlibs.zip "https://github.com/brechtsanders/winlibs_mingw/re
 # install rcedit (for exe icon changing)
 ENV RCEDIT_VERSION=2.0.0
 RUN curl -Lo /opt/rcedit.exe "https://github.com/electron/rcedit/releases/download/v${RCEDIT_VERSION}/rcedit-x64.exe"
+
+# # compile ncursesw
+# ENV NCURSESW_VER="6.6-4"
+# RUN mkdir -p /tmp/ncurses_ext/ && \
+#     curl -Lo /tmp/ncurses.pkg.tar.zst "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-ncurses-${NCURSESW_VER}-any.pkg.tar.zst" && \
+#     tar --use-compress-program=unzstd -xvf /tmp/ncurses.pkg.tar.zst -C /tmp/ncurses_ext/ && \
+#     cp /tmp/ncurses_ext/mingw64/bin/libncursesw6.dll /opt/libncursesw6.dll && \
+#     mkdir -p /opt/ncurses-include/ && \
+#     cp -r /tmp/ncurses_ext/mingw64/include/* /opt/ncurses-include/ && \
+#     mkdir -p /opt/terminfo && \
+#     cp /tmp/ncurses_ext/mingw64/share/terminfo/61/alacritty /opt/terminfo && \
+#     cp /tmp/ncurses_ext/mingw64/share/terminfo/78/xterm-256color /opt/terminfo && \
+#     export C_INCLUDE_PATH="/opt/ncurses-include"
+
+# compile pdcursesmod
+ENV PDCURSESMOD_VER=4.5.4
+RUN mkdir -p /tmp/pdcursesmod_build/ && \
+    curl -Lo /tmp/pdcursesmod.tar.gz "https://github.com/Bill-Gray/PDCursesMod/archive/refs/tags/v${PDCURSESMOD_VER}.tar.gz" && \
+    tar -xzf /tmp/pdcursesmod.tar.gz -C /tmp/pdcursesmod_build && \
+    cd "/tmp/pdcursesmod_build/PDCursesMod-${PDCURSESMOD_VER}/vt" && \
+    make -f Makefile CC=x86_64-w64-mingw32-gcc LINK=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar WINDRES=x86_64-w64-mingw32-windres WIDE=Y DLL=Y UTF8=Y CHTYPE_32=Y && \
+    mkdir -p /opt/pdcursesmod-include && \
+    cp "/tmp/pdcursesmod_build/PDCursesMod-${PDCURSESMOD_VER}/curses.h" /opt/pdcursesmod-include/pdcurses.h && \
+    cp "/tmp/pdcursesmod_build/PDCursesMod-${PDCURSESMOD_VER}/vt/libpdcurses.so" /opt/
 
 WORKDIR /workspace
 

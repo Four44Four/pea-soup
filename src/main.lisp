@@ -1,10 +1,15 @@
 (in-package #:pea-soup)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter +PDC_ALT_LOW_I_CHAR+ (code-char 425))
-  (defparameter +PDC_ALT_LOW_J_CHAR+ (code-char 426))
-  (defparameter +PDC_ALT_LOW_K_CHAR+ (code-char 427))
-  (defparameter +PDC_ALT_LOW_L_CHAR+ (code-char 428)))
+  (defparameter +PDC_ALT_LOW_I_CHAR+ (code-char 60585))
+  (defparameter +PDC_ALT_LOW_J_CHAR+ (code-char 60586))
+  (defparameter +PDC_ALT_LOW_K_CHAR+ (code-char 60587))
+  (defparameter +PDC_ALT_LOW_L_CHAR+ (code-char 60588)))
+
+#+windows
+  (progn
+    (fmakunbound 'charms/ll:endwin)
+    (cffi:defcfun ("endwin_u32_4400" charms/ll:endwin) :int))
 
 
 (defparameter +REFRESH_FPS+ 15)
@@ -101,37 +106,43 @@
 (defconstant +OTHERS_HEALING_COLOR_PAIR_ID+ 7)
 (defparameter +OTHERS_HEALING_COLOR_PAIR+ nil)
 
+(defmacro --init-color-pair (pair-in pair-id-in color-id-fg color-id-bg)
+  `(progn
+    (charms/ll:init-pair ,pair-id-in ,color-id-fg ,color-id-bg)
+    (setq ,pair-in (charms/ll:color-pair ,pair-id-in)))
+)
+
 (defun init-all-colors ()
   (charms/ll:start-color)
   (charms/ll:use-default-colors)
 
   (charms/ll:init-color +YELLOW1_ID+ 467 420 239)
-  (charms/ll:init-pair +WALL_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +YELLOW1_ID+)
-  (setq +WALL_COLOR_PAIR+ (charms/ll:color-pair +WALL_COLOR_PAIR_ID+))
+  (--init-color-pair +WALL_COLOR_PAIR+ +WALL_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +YELLOW1_ID+)
 
   (charms/ll:init-color +GREEN1_ID+ 500 1000 250)
-  (charms/ll:init-pair +PLAYER_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_ID+)
-  (setq +PLAYER_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_COLOR_PAIR_ID+))
+  (--init-color-pair +PLAYER_COLOR_PAIR+ +PLAYER_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN1_ID+)
 
   (charms/ll:init-color +GREEN_DARK1_ID+ 500 800 500)
-  (charms/ll:init-pair +OTHERS_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_ID+)
-  (setq +OTHERS_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_COLOR_PAIR_ID+))
+  (--init-color-pair +OTHERS_COLOR_PAIR+ +OTHERS_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN_DARK1_ID+)
 
   (charms/ll:init-color +GREEN1_REDDISH_ID+ 710 835 235)
-  (charms/ll:init-pair +PLAYER_HURTING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_REDDISH_ID+)
-  (setq +PLAYER_HURTING_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_HURTING_COLOR_PAIR_ID+))
+  (--init-color-pair +PLAYER_HURTING_COLOR_PAIR+ +PLAYER_HURTING_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN1_REDDISH_ID+)
 
   (charms/ll:init-color +GREEN1_GREENISH_ID+ 0 1000 329)
-  (charms/ll:init-pair +PLAYER_HEALING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN1_GREENISH_ID+)
-  (setq +PLAYER_HEALING_COLOR_PAIR+ (charms/ll:color-pair +PLAYER_HEALING_COLOR_PAIR_ID+))
+  (--init-color-pair +PLAYER_HEALING_COLOR_PAIR+ +PLAYER_HEALING_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN1_GREENISH_ID+)
 
   (charms/ll:init-color +GREEN_DARK1_REDDISH_ID+ 729 804 500)
-  (charms/ll:init-pair +OTHERS_HURTING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_REDDISH_ID+)
-  (setq +OTHERS_HURTING_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_HURTING_COLOR_PAIR_ID+))
+  (--init-color-pair +OTHERS_HURTING_COLOR_PAIR+ +OTHERS_HURTING_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN_DARK1_REDDISH_ID+)
 
   (charms/ll:init-color +GREEN_DARK1_GREENISH_ID+ 263 926 384)
-  (charms/ll:init-pair +OTHERS_HEALING_COLOR_PAIR_ID+ charms/ll:COLOR_BLACK +GREEN_DARK1_GREENISH_ID+)
-  (setq +OTHERS_HEALING_COLOR_PAIR+ (charms/ll:color-pair +OTHERS_HEALING_COLOR_PAIR_ID+))
+  (--init-color-pair +OTHERS_HEALING_COLOR_PAIR+ +OTHERS_HEALING_COLOR_PAIR_ID+
+                     charms/ll:COLOR_BLACK +GREEN_DARK1_GREENISH_ID+)
 )
 
 ;; ---------------------------------------------------------------------------------------------------------

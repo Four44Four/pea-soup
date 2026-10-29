@@ -1,7 +1,3 @@
-# Sprint 1
- - Fix the inversed color + nonfunctional alt keybinds on Windows (PDCurses)
- - Add the window resize auto redraw
-    - More important for Windows (PDCurses) bc it seems like resizing the window corrupts the screen
 # Sprint 2
  - Research into locally runnable decision making AI models
  - Make a basic vegetable AI controlled NPC
