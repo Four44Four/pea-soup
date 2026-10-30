@@ -9,8 +9,40 @@
 #+windows
   (progn
     (fmakunbound 'charms/ll:endwin)
-    (cffi:defcfun ("endwin_u32_4400" charms/ll:endwin) :int))
+    (cffi:defcfun ("endwin_u32_4400" charms/ll:endwin) :int)
 
+    ;; i love windows so much !!111!1!1!!!
+    (cffi:defcstruct win32-coord
+      (x :short)
+      (y :short))
+    (cffi:defcstruct win32-small-rect
+      (left :short)
+      (top :short)
+      (right :short)
+      (bottom :short))
+    (cffi:defcstruct win32-console-screen-buffer-info
+      (dw-size (:struct win32-coord))
+      (dw-cursor-position (:struct win32-coord))
+      (w-attribs :unsigned-short)
+      (sr-window (:struct win32-small-rect))
+      (dw-max-window-size (:struct win32-coord)))
+    (cffi:defcfun ("GetStdHandle" win32-get-std-handle) :pointer
+      (n-std-handle :int32))
+    (cffi:defcfun ("GetConsoleScreenBufferInfo" win32-get-console-screen-buffer-info) :boolean
+      (h-console-output :pointer)
+      (lp-console-screen-buffer-info :pointer))
+    (defconstant +WIN32_STDOUT_HANDLE+ -11)
+    (defun win32-get-term-dimensions ()
+      (let ((stdout-handle (win32-get-std-handle +WIN32_STDOUT_HANDLE+)))
+        (cffi:with-foreign-object (screen-info '(:struct win32-console-screen-buffer-info))
+          (if (win32-get-console-screen-buffer-info stdout-handle screen-info)
+            (cffi:with-foreign-slots ((left top right bottom)
+                                      (cffi:foreign-slot-pointer screen-info '(:struct win32-console-screen-buffer-info) 'sr-window)
+                                      (:struct win32-small-rect))
+              (values (1+ (- right left))
+                      (1+ (- bottom top))))
+            ;; failed: return 4 4 as default
+            (values 4 4))))))
 
 (defparameter +REFRESH_FPS+ 15)
 (defparameter +REFRESH_DELTA_TIME+ (float (/ internal-time-units-per-second +REFRESH_FPS+)
@@ -251,6 +283,8 @@
                      (get-next-char-fn #'(lambda ()
                                          (charms:get-char main-window :ignore-error t)))
                      (last-frame-time (get-internal-real-time))
+                     (last-win-width 0)
+                     (last-win-height 0)
                      (map-pad (charms/ll:newpad +MAP_WIDTH+ +MAP_HEIGHT+))
                      (game-state-instance (make-game-state :map-wall-data (generate-map-wall-data +MAP_WIDTH+ +MAP_HEIGHT+)
                                                            :map-entity-data (make-array (list +MAP_HEIGHT+ +MAP_WIDTH+)
@@ -278,16 +312,24 @@
                   (:quit ()
                     t)
                   (:idle ()
+                    ;; (charms/ll:resize-term 0 0)
+
                     (let* ((cur-time (get-internal-real-time))
                            (elapsed-time (- cur-time last-frame-time)))
                       (when (>= elapsed-time +REFRESH_DELTA_TIME+)
                         (setf last-frame-time cur-time)
 
                         (multiple-value-bind (cur-win-width cur-win-height)
-                            (charms:window-dimensions main-window)
-                          ;; TODO: can impl viewport resizing by just comparing prev and current `viewport-width` and `viewport-height`
-                          (let ((viewport-width (1- cur-win-width))
+                            #+windows
+                              (win32-get-term-dimensions)
+                            #-windows
+                              (charms:window-dimensions main-window)
+                          (let ((resized-p (or (/= cur-win-width last-win-width)
+                                               (/= cur-win-height last-win-height)))
+                                (viewport-width (1- cur-win-width))
                                 (viewport-height (1- cur-win-height)))
+                            (setf last-win-width cur-win-width
+                                  last-win-height cur-win-height)
                             ;; reset `moved-p` + `redraw-p`
                             (setf (game-state-moved-p game-state-instance) nil
                                   (game-state-redraw-p game-state-instance) nil)
@@ -304,10 +346,21 @@
                             ;;   (unless (= -1 c)
                             ;;     (print-to-log-file "~& >> ~A~%" c)))
 
+                            (when resized-p
+                              ;(charms:clear-window main-window)
+                              #+windows
+                                (charms/ll:resize-term cur-win-height cur-win-width)
+                              (charms/ll:wclear main-window-ptr)
+                              (charms/ll:clearok main-window-ptr 1)
+                              (charms/ll:wnoutrefresh main-window-ptr))
+
                             ;; do main rendering
                             (let ((cam-map-x (game-state-cur-x game-state-instance))
                                   (cam-map-y (game-state-cur-y game-state-instance)))
-                              (when (or first-frame-p (game-state-moved-p game-state-instance))
+                              (when (or first-frame-p
+                                        (game-state-moved-p game-state-instance)
+                                        resized-p)
+                                ;; (print-to-log-file "~&~A <> ~A~%" viewport-width viewport-height)
                                 (when first-frame-p
                                   (setf first-frame-p nil)
                                   (on-first-frame map-pad game-state-instance viewport-width viewport-height))
@@ -325,7 +378,7 @@
                 (print-to-log-file "~%~A~%" error-in)
                 #+sbcl
                   (print-to-log-file "~%~A~%" (with-output-to-string (strm-out)
-                                                (sb-debug:backtrace :stream strm-out))))))))))
+                                                (sb-debug:backtrace 100 strm-out))))))))))
 )
 
 (deftype action-type ()
