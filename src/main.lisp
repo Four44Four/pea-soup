@@ -138,6 +138,10 @@
 (defconstant +OTHERS_HEALING_COLOR_PAIR_ID+ 7)
 (defparameter +OTHERS_HEALING_COLOR_PAIR+ nil)
 
+(defconstant +ALMOST_BLACK_ID+ 17)
+(defconstant +FLOOR_COLOR_PAIR_ID+ 8)
+(defparameter +FLOOR_COLOR_PAIR+ nil)
+
 (defmacro --init-color-pair (pair-in pair-id-in color-id-fg color-id-bg)
   `(progn
     (charms/ll:init-pair ,pair-id-in ,color-id-fg ,color-id-bg)
@@ -147,6 +151,10 @@
 (defun init-all-colors ()
   (charms/ll:start-color)
   (charms/ll:use-default-colors)
+
+  (charms/ll:init-color +ALMOST_BLACK_ID+ 40 40 40)
+  (--init-color-pair +FLOOR_COLOR_PAIR+ +FLOOR_COLOR_PAIR_ID+
+                     +ALMOST_BLACK_ID+ +ALMOST_BLACK_ID+)
 
   (charms/ll:init-color +YELLOW1_ID+ 467 420 239)
   (--init-color-pair +WALL_COLOR_PAIR+ +WALL_COLOR_PAIR_ID+
@@ -212,6 +220,8 @@
 (defparameter +MAP_SPAWN_RADIUS+ 10)
 (defparameter +OTHERS_SPAWN_MAX_INIT_RADIUS+ 5)
 (defparameter +OTHERS_SPAWN_MAX_TRY_RADIUS+ 10)
+(defparameter +FLOOR_DEFAULT_CHAR_CODE+ (char-code #\Space))
+(defparameter +WALL_DEFAULT_CHAR_CODE+ (char-code #\Space))
 (defparameter +ENTITIES_TICK_DELTA_TIME+ (* 1 internal-time-units-per-second))
 (defparameter +ENTITY_NORMAL_ATK_DMG+ 10)
 (defparameter +ENTITY_NORMAL_HEAL_AMT+ 10)
@@ -292,15 +302,23 @@
                                                                                         :initial-element 0)))
                      (first-frame-p t))
 
+                ;; (charms/ll:leaveok main-window-ptr 1)
+                ;; (charms/ll:leaveok map-pad 1)
+
                 ;; populate `map-pad` according to game state
                 (loop for x from 0 below +MAP_WIDTH+ do
                   (loop for y from 0 below +MAP_HEIGHT+ do
                     (if (zerop (sbit (game-state-map-wall-data game-state-instance) y x))
-                      (charms/ll:mvwaddch map-pad y x (char-code #\Space))
                       (progn
-                        (charms/ll:wattron map-pad +WALL_COLOR_PAIR+)
-                        (charms/ll:mvwaddch map-pad y x (char-code #\Space))
-                        (charms/ll:wattroff map-pad +WALL_COLOR_PAIR+)))))
+                        (charms/ll:wattrset map-pad +FLOOR_COLOR_PAIR+)
+                        (charms/ll:mvwaddch map-pad y x +FLOOR_DEFAULT_CHAR_CODE+)
+                        ;(charms/ll:wattroff map-pad +FLOOR_COLOR_PAIR+)
+                        )
+                      (progn
+                        (charms/ll:wattrset map-pad +WALL_COLOR_PAIR+)
+                        (charms/ll:mvwaddch map-pad y x +WALL_DEFAULT_CHAR_CODE+)
+                        ;(charms/ll:wattroff map-pad +WALL_COLOR_PAIR+)
+                        ))))
 
                 (start-async-timer "entities tick"
                                    :delay-time +ENTITIES_TICK_DELTA_TIME+
@@ -563,11 +581,16 @@
         wall-p-bit)
 
   (if (zerop wall-p-bit)
-    (charms/ll:mvwaddch map-pad-in map-y map-x (char-code #\Space))
     (progn
-      (charms/ll:wattron map-pad-in +WALL_COLOR_PAIR+)
-      (charms/ll:mvwaddch map-pad-in map-y map-x (char-code #\Space))
-      (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)))
+      (charms/ll:wattrset map-pad-in +FLOOR_COLOR_PAIR+)
+      (charms/ll:mvwaddch map-pad-in map-y map-x +FLOOR_DEFAULT_CHAR_CODE+)
+      ;(charms/ll:wattroff map-pad-in +FLOOR_COLOR_PAIR+)
+      )
+    (progn
+      (charms/ll:wattrset map-pad-in +WALL_COLOR_PAIR+)
+      (charms/ll:mvwaddch map-pad-in map-y map-x +WALL_DEFAULT_CHAR_CODE+)
+      ;(charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)
+      ))
 
   (mark-pad-dirty game-state-in map-pad-in map-x map-y)
 )
@@ -586,15 +609,24 @@
 (defun visual-move-entity (game-state-in map-pad-in entity-in)
   ;; erase `entity-in` at prev map cells
   (let ((prev-map-x (entity-prev-map-x entity-in))
-        (prev-map-y (entity-prev-map-y entity-in)))
+        (prev-map-y (entity-prev-map-y entity-in))
+        ;; so on Alacritty (and other GPU optimized terminals), swapping 2 different characters between lines causes screen tearing
+        ;; so we can mitigate that by leaving a "trail" of characters to only change 1 character per line jump
+        ;;   perhaps in the future this could be more properly addressed via an off-screen anchor grid or smt
+        (entity-in-char-code (get-display-char-code-entity entity-in)))
     (unless (or (< prev-map-x 0) (>= prev-map-x +MAP_WIDTH+)
                 (< prev-map-y 0) (>= prev-map-y +MAP_HEIGHT+))
       (if (entity-prev-display-wall-p entity-in)
         (progn
-          (charms/ll:wattron map-pad-in +WALL_COLOR_PAIR+)
-          (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space))
-          (charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+))
-        (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x (char-code #\Space)))
+          (charms/ll:wattrset map-pad-in +WALL_COLOR_PAIR+)
+          (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x entity-in-char-code)
+          ;(charms/ll:wattroff map-pad-in +WALL_COLOR_PAIR+)
+          )
+        (progn
+          (charms/ll:wattrset map-pad-in +FLOOR_COLOR_PAIR+)
+          (charms/ll:mvwaddch map-pad-in prev-map-y prev-map-x entity-in-char-code)
+          ;(charms/ll:wattroff map-pad-in +FLOOR_COLOR_PAIR+)
+          ))
       (mark-pad-dirty game-state-in map-pad-in prev-map-x prev-map-y)))
 
   (let ((cur-map-x (entity-map-x entity-in))
@@ -605,15 +637,7 @@
                      cur-map-y cur-map-x)))
 
     ;; draw `entity-in` at new char cell
-    (visual-update-entity game-state-in map-pad-in entity-in)
-    ;; (let ((cur-entity-color-pair (get-active-color-pair-entity entity-in)))
-    ;;   (when cur-entity-color-pair
-    ;;     (charms/ll:wattron map-pad-in cur-entity-color-pair))
-    ;;   (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
-    ;;   (when cur-entity-color-pair
-    ;;     (charms/ll:wattroff map-pad-in cur-entity-color-pair))
-    ;;   (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y))
-    )
+    (visual-update-entity game-state-in map-pad-in entity-in))
 )
 
 (defun visual-update-entity (game-state-in map-pad-in entity-in)
@@ -622,14 +646,19 @@
         (cur-color-pair (get-active-color-pair-entity entity-in)))
     (if (zerop (entity-health entity-in))
       ;; dead: clear the spot
-      (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (char-code #\Space))
+      (progn
+        (charms/ll:wattrset map-pad-in +FLOOR_COLOR_PAIR+)
+        (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x +FLOOR_DEFAULT_CHAR_CODE+)
+        ;(charms/ll:wattroff map-pad-in +FLOOR_COLOR_PAIR+)
+        )
       ;; not dead: maybe update the display char
       (progn
         (when cur-color-pair
-          (charms/ll:wattron map-pad-in cur-color-pair))
+          (charms/ll:wattrset map-pad-in cur-color-pair))
         (charms/ll:mvwaddch map-pad-in cur-map-y cur-map-x (get-display-char-code-entity entity-in))
-        (when cur-color-pair
-          (charms/ll:wattroff map-pad-in cur-color-pair))))
+        ;(when cur-color-pair
+        ;  (charms/ll:wattroff map-pad-in cur-color-pair))
+        ))
     (mark-pad-dirty game-state-in map-pad-in cur-map-x cur-map-y))
 )
 
@@ -929,5 +958,7 @@
       (when (> (entity-health cur-entity) +ENTITY_MAX_HEALTH+)
         (setf (entity-health cur-entity)
               +ENTITY_MAX_HEALTH+)))
-    (visual-update-entity game-state-in map-pad-in cur-entity))
+    ;; the move each tick will update it visually anyways so the below is redundant
+    ;(visual-update-entity game-state-in map-pad-in cur-entity)
+    )
 )

@@ -13,27 +13,6 @@ cp -r /workspace/* "$WINEPREFIX/drive_c/quicklisp/local-projects/pea-soup/"
 mkdir -p /tmp/dist_win/libs/
 
 
-
-# echo "Building PDCurses library..."
-# curl -Lo /tmp/pdcurses.tar.gz "https://github.com/wmcbrine/PDCurses/archive/refs/tags/$PDCURSES_VER.tar.gz"
-# tar -xvf /tmp/pdcurses.tar.gz -C /tmp/
-# cd "/tmp/PDCurses-$PDCURSES_VER/wincon"
-# CFLAGS="-DPDC_RGB" make -f Makefile CC=x86_64-w64-mingw32-gcc LINK=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar WINDRES=x86_64-w64-mingw32-windres WIDE=Y DLL=Y
-# cp pdcurses.dll /tmp/dist_win/libs/pdcurses.dll
-# mkdir -p /tmp/pdcurses-include/ncursesw
-# cp "/tmp/PDCurses-$PDCURSES_VER/curses.h" /tmp/pdcurses-include/ncursesw/ncurses.h
-# cp "/tmp/PDCurses-$PDCURSES_VER/curses.h" /tmp/pdcurses-include/curses.h
-# cp "/tmp/PDCurses-$PDCURSES_VER/curses.h" /tmp/pdcurses-include/pdcurses.h
-# export C_INCLUDE_PATH="/tmp/pdcurses-include"
-
-# cp /opt/libncursesw6.dll /tmp/dist_win/libs/libncursesw6.dll
-# cp /opt/mingw_win/mingw64/bin/libgcc_s_*.dll /tmp/dist_win/libs/  2>/dev/null || true
-# cp /opt/mingw_win/mingw64/bin/libwinpthread-*.dll /tmp/dist_win/libs/  2>/dev/null || true
-
-# mkdir -p /tmp/dist_win/resources/terminfo/61/ /tmp/dist_win/resources/terminfo/78/
-# cp /opt/terminfo/alacritty /tmp/dist_win/resources/terminfo/61/
-# cp /opt/terminfo/xterm-256color /tmp/dist_win/resources/terminfo/78/
-
 cp /opt/libpdcurses.so /tmp/dist_win/libs/libpdcurses.dll
 
 echo "Downloading other dependencies (SDL2, SDL2 Mixer, Alacritty)"

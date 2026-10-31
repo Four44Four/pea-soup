@@ -4,7 +4,6 @@ set -e
 
 APPIMAGE_BASENAME="pea-soup-linux-x86_64.AppImage"
 QL_LOCAL_PROJECT_PATH="/root/quicklisp/local-projects"
-ALACRITTY_VER="v0.16.0"
 
 mkdir -p "$QL_LOCAL_PROJECT_PATH/pea-soup"
 cp -r /workspace/* "$QL_LOCAL_PROJECT_PATH/pea-soup"
@@ -32,25 +31,7 @@ cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 /tmp/AppDir/usr/lib/libSDL2.so
 cp /usr/lib/x86_64-linux-gnu/libSDL2_mixer-2.0.so.0 /tmp/AppDir/usr/lib/libSDL2_mixer.so
 cp /lib/x86_64-linux-gnu/libncursesw.so.6 /tmp/AppDir/usr/lib/libncursesw.so
 
-
-echo "Compiling Alacritty $ALACRITTY_VER..."
-apt-get update && apt-get install -y \
-    cmake \
-    pkg-config \
-    libfreetype6-dev \
-    libfontconfig1-dev \
-    libxcb-xfixes0-dev \
-    libxkbcommon-dev \
-    python3
-echo 'Installing Rust toolchain...'
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-. "$HOME/.cargo/env"
-mkdir -p /tmp/alacritty-src
-cd /tmp/alacritty-src
-git clone --depth 1 --branch "$ALACRITTY_VER" https://github.com/alacritty/alacritty.git .
-cargo build --release
-strip --strip-unneeded target/release/alacritty
-cp target/release/alacritty /tmp/AppDir/usr/bin/
+cp /opt/alacritty /tmp/AppDir/usr/bin/
 
 
 echo 'Creating entrypoint files...'

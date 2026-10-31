@@ -50,6 +50,28 @@ RUN curl -Lo /usr/local/bin/appimagetool https://github.com/appimage/appimagetoo
     ln -s /opt/appimagetool/AppRun /usr/local/bin/appimagetool-no-fuse && \
     rm /usr/local/bin/appimagetool
 
+# compile alacritty
+ENV ALACRITTY_VER="v0.16.0"
+RUN echo "Compiling Alacritty $ALACRITTY_VER..." && \
+    apt-get update && apt-get install -y \
+        cmake \
+        pkg-config \
+        libfreetype6-dev \
+        libfontconfig1-dev \
+        libxcb-xfixes0-dev \
+        libxkbcommon-dev \
+        python3 && \
+    echo 'Installing Rust toolchain...' && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . "$HOME/.cargo/env" && \
+    mkdir -p /tmp/alacritty-src && \
+    cd /tmp/alacritty-src && \
+    git clone --depth 1 --branch "$ALACRITTY_VER" https://github.com/alacritty/alacritty.git . && \
+    cargo build --release && \
+    strip --strip-unneeded target/release/alacritty && \
+    cp target/release/alacritty /opt
+
+
 WORKDIR /workspace
 
 COPY . /workspace
