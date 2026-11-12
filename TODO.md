@@ -1,73 +1,79 @@
+# Sprint 1
+ - Use 16 bit ids for entities (65k entities max)
+ - Implement an cache-friendly entity chunking system
+ - Create temporary deterministic AIs that use a pathfind to enemies and heal/protect allies (while avoiding getting stuck)
+    - This is the default AI
+    - Use Bidirectional BFS for pathfinding
+       - Use the first cell of the shortest found path to move into (if neither target nor source are trapped)
+    - Deterministic AI heuristics:
+       - Directly adjacent:
+          - Prioritize attacking enemies no matter what
+          - Then prioritize healing allies
+       - 7x7 square:
+          - Prioritize moving towards healing damaged allies
+          - Then prioritize attacking weaker or equivalent enemies than yourself
+          - Then prioritize moving away from enemies when low health
+          - Then prioritize moving towards allies when low health
+       - 4 broad directions:
+          - Prioritize moving towards damaged allies
+          - Then prioritize moving towards weaker or equivalent enemies than yourself
+          - Then prioritize moving towards allies
+          - Then prioritize moving towards enemies
+          - Then prioritize random direction navigation
+    - Deterministic AI rules:
+       - If an enemy is directly adjacent:
+          - Attack that enemy
+       - Else if your health >= 30 and a damaged ally is directly adjacent:
+          - Heal that ally
+       - Else if your health >= 30 and >= 1 ally that is damaged within the surrounding 7x7 square:
+          - Move towards closest ally's position
+       - Else if your health >= 30 and >= 1 enemies with a <= health is within the surrounding 7x7 square:
+          - Move towards closest enemy's position
+       - Else if your health < 30 and there is >= 1 enemies within the surrounding 7x7 square:
+          - Move away from closest enemy's position
+       - Else if your health < 30 and there is >= 1 ally within the surrounding 7x7 square:
+          - Move towards closest ally's position
+       - Else if your health >= 30 and any direction has an ally that has <= 30 health:
+          - Move in that direction
+       - Else if your health >= 30 and any direction has an enemy with <= health than you:
+          - Move in that direction
+       - Else if any direction has an ally:
+          - Move in that direction
+       - Else if your health >= 30 and any direction has an enemy:
+          - Move in that direction
+       - Else:
+          - Move in a random direction
+ - Create config file with Lisp DSL that can spawn teams at specific places
+    - Create custom Lisp DSL parser
 # Sprint 2
- - Research into locally runnable decision making AI models
- - Make a basic vegetable AI controlled NPC
-```
-rules: healing others damages self, cannot move into walls, can only heal/attack directly adjacent entities, regen over time
-walls X
-space _
-entity heavy damage #
-entity medium damage O
-entity light damage -
-entity no damage .
-self P
-self health 70
-row length 27
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________P______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-__XXXX___XXX___#_O-OXXXX____XXXX______
-__________XXXX______.____XXXXXX_______
-____-_____________.______.______XXX_O_
-__XX_X_X_X_X______XXXX___O_.._-XX_____
-choose 1 action
-move up
-move down
-move right
-move left
-attack up
-attack down
-attack right
-attack left
-heal up
-heal down
-heal right
-heal left
-```
- - Add interactions between the vegetable NPC and the controllable character
- - Make multiple vegetable NPCs spawn as the player moves (they must persist even when they move off screen)
-    - Make the locally running AI model control all of the vegetable NPCs using a ticking system
-    - Add interactions between each vegetable NPC (this should be derived from the interactions between the vegetable NPC and the controllable character)
+ - Create ego-centric neighborhood dump centered on any given entity
+    - Should contain enough information to allow a movement, healing, or attack decision in the 4 directions to be made
+    - Must only contain limited, discrete categories for each setting
+    - Search in a 4 20x20 squares in all 4 directions
+       - Cache findings temporarily in 4 buckets so that overlapping squares are not reiterated, only the untouched parts are
+       - Use a pathfind to get if any entity in a direction square is reachable (short circuit if any are and mark that direction as having a navigatable entity)
+    - Record all things in a 7x7 grid around self
+    - Context schema:
+       - 4x direction square enemy present status (can be `no_enemy`, `has_enemy`, `navigable_enemy`)
+       - 4x direction square ally present (can be `no_ally`, `has_ally`, `navigable_ally`)
+       - 1x self health buckets (`0-33`, `33-67`, `67-100`, `100`)
+       - 1x self prev action choice (`move_up`, `move_down`, `move_left`, `move_right`, `attack_up`, `attack_down`, `attack_left`, `attack_right`, `heal_up`, `heal_down`, `heal_left`, `heal_right`)
+       - 49x surrounding tiles (`.`, `#`, `A`, `E`)
+ - Mount the ego-centric neighborhood dump onto the player to collect context+decision pairs whenever the player moves, heals, or attacks
+    - Make each session output a different .json file (each json object instance is a "context" and "decision" object pair)
+    - Output the .json files into a directory `training_dumps`
 # Sprint 3
- - Locally savable game state
- - Procedural map manipulation abilities
+ - Add training mechanism for the .json dumps into a gradient boosted decision tree .onnx model and replace the temporary deterministic entity AIs with a blackbox model decision
+    - Togglable training capture conditions:
+       - Only when wall is visible in own 5x5 grid
+       - Only when player is at specific damage level
+       - Only when own teammates are in own 5x5 grid
+       ...
+ - Add config for spawning groups of entities with specific AI .onnx models or the default one
+    - Config file only
 # Sprint 4
+ - Draw final Pea Soup art
+    - Bowl of peas in a soup
+    - Maybe make the peas anthropomorphic ?
  - Finishing touches
     - Smooth out any building/packaging issues
