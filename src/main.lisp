@@ -263,9 +263,6 @@
   (cur-entity-id 0 :type (unsigned-byte 32)) ;; starts at 1+ this value
 )
 
-(deftype direction ()
-  `(member :up :down :left :right))
-
 ;; ---------------------------------------------------------------------------------------------------------
 
 (defun main ()

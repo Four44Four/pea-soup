@@ -9,7 +9,9 @@
 
   (load (uiop:subpathname cur-dir-path "test/test-util.lisp"))
 
-  (load (uiop:subpathname cur-dir-path "test/tests/keyed-min-heap-tests.lisp")))
+  (load (uiop:subpathname cur-dir-path "test/tests/keyed-min-heap-tests.lisp"))
+  (load (uiop:subpathname cur-dir-path "test/tests/pathfind-tests.lisp"))
+  )
 
 (in-package #:pea-soup)
 (cond

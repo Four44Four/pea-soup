@@ -5,6 +5,8 @@
   :components ((:file "package")
                (:module "src"
                 :serial t
-                :components ((:file "keyed-min-heap")
+                :components ((:file "general-util")
+                             (:file "entity-context-util")
+                             (:file "keyed-min-heap")
                              (:file "timer-util")
                              (:file "main")))))
